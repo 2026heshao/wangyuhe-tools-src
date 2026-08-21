@@ -87,6 +87,35 @@ class SingleInstance:
         except Exception:
             return False
 
+    def wait_for_signal(self, stop_flag):
+        """
+        阻塞等待唤醒信号（事件驱动，替代轮询以降低空闲 CPU）。
+        后台线程调用：阻塞直到事件变为有信号或 stop_flag 被置位。
+        收到信号后重置事件并返回 True；被要求停止时返回 False。
+
+        :param stop_flag: 一个 callable，返回 True 表示应停止等待（程序退出）
+        """
+        if self._event_handle is None:
+            return False
+        try:
+            WAIT_OBJECT_0 = 0
+            WAIT_FAILED = 0xFFFFFFFF
+            INFINITE = 0xFFFFFFFF
+            # 以 500ms 为粒度阻塞等待，便于及时响应退出请求
+            while not stop_flag():
+                result = ctypes.windll.kernel32.WaitForSingleObject(
+                    self._event_handle, 500
+                )
+                if result == WAIT_OBJECT_0:
+                    # 手动重置事件，收到后重置，避免重复触发
+                    ctypes.windll.kernel32.ResetEvent(self._event_handle)
+                    return True
+                if result == WAIT_FAILED:
+                    return False
+            return False
+        except Exception:
+            return False
+
     @classmethod
     def signal_show(cls):
         """

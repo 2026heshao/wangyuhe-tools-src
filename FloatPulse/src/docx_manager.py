@@ -142,7 +142,7 @@ class DocxManager:
             os.makedirs(os.path.dirname(self._meta_path), exist_ok=True)
             tmp_path = self._meta_path + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+                json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
             os.replace(tmp_path, self._meta_path)
         except OSError:
             pass

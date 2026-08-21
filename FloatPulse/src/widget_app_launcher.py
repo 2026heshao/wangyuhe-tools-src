@@ -54,7 +54,7 @@ from PyQt6.QtWidgets import (
     QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QSize, QFileInfo, pyqtSignal
-from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QPixmapCache
 
 from src.theme import get_main_window_qss, get_colors
 
@@ -83,8 +83,13 @@ def draw_placeholder_icon(size: int = 64) -> QPixmap:
     绘制默认占位图标（无图标时的兜底），返回 QPixmap。
 
     绘制一个青色圆角方块 + 白色"应用窗口"轮廓，风格与主题主色一致。
+    结果按尺寸缓存，避免每次重建卡片时重复绘制。
     """
     size = max(16, int(size))
+    cache_key = f"fp:placeholder:{size}"
+    cached = QPixmapCache.find(cache_key)
+    if cached is not None and not cached.isNull():
+        return cached
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -109,6 +114,7 @@ def draw_placeholder_icon(size: int = 64) -> QPixmap:
     painter.drawLine(m, m + pen_w * 2 + 1, m + w, m + pen_w * 2 + 1)
 
     painter.end()
+    QPixmapCache.insert(cache_key, pixmap)
     return pixmap
 
 
@@ -118,9 +124,15 @@ def extract_exe_icon(exe_path: str, size: int = 64) -> QPixmap:
 
     实现方式：使用 Qt 原生 QFileIconProvider 读取系统为该 exe 提供的图标；
     若路径为空 / 文件不存在 / 提取失败，则回退到默认占位图标。
+    同一 (路径, 尺寸) 的结果按 QPixmapCache 缓存，避免卡片重建时重复提取。
     """
     if not exe_path or not os.path.exists(exe_path):
         return draw_placeholder_icon(size)
+
+    cache_key = f"fp:exe:{exe_path}:{size}"
+    cached = QPixmapCache.find(cache_key)
+    if cached is not None and not cached.isNull():
+        return cached
 
     try:
         provider = QFileIconProvider()
@@ -128,6 +140,7 @@ def extract_exe_icon(exe_path: str, size: int = 64) -> QPixmap:
         pixmap = icon.pixmap(QSize(size, size))
         if pixmap.isNull():
             return draw_placeholder_icon(size)
+        QPixmapCache.insert(cache_key, pixmap)
         return pixmap
     except Exception:
         return draw_placeholder_icon(size)
@@ -138,19 +151,27 @@ def load_icon_pixmap(icon_path: str, size: int = 64) -> QPixmap:
     加载外部图标文件（ico / png）为 QPixmap，用于手动覆盖图标。
 
     加载失败或路径为空时回退到默认占位图标。
+    同一 (路径, 尺寸) 的结果按 QPixmapCache 缓存，避免重复解码。
     """
     if not icon_path or not os.path.exists(icon_path):
         return draw_placeholder_icon(size)
+
+    cache_key = f"fp:file:{icon_path}:{size}"
+    cached = QPixmapCache.find(cache_key)
+    if cached is not None and not cached.isNull():
+        return cached
 
     try:
         pixmap = QPixmap(icon_path)
         if pixmap.isNull():
             return draw_placeholder_icon(size)
-        return pixmap.scaled(
+        pixmap = pixmap.scaled(
             size, size,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
+        QPixmapCache.insert(cache_key, pixmap)
+        return pixmap
     except Exception:
         return draw_placeholder_icon(size)
 

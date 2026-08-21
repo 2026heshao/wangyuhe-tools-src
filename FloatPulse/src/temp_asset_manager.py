@@ -32,7 +32,22 @@
 import os
 import json
 import shutil
+import hashlib
 from datetime import datetime, timedelta
+
+from src.constants import sanitize_filename
+
+
+def _file_sha256(path: str) -> str:
+    """计算文件 sha256 哈希，用于拖拽去重；失败返回空串。"""
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return ""
 
 
 # 图片扩展名集合（小写，含点）
@@ -52,13 +67,14 @@ class AssetInfo:
     """单条临时素材的数据载体"""
 
     def __init__(self, asset_id, original_name, stored_path, is_image,
-                 size_bytes, added_time):
+                 size_bytes, added_time, content_hash=""):
         self.asset_id = asset_id              # 唯一主键，自增不复用
         self.original_name = original_name    # 原文件名
         self.stored_path = stored_path        # 复制后的完整路径
         self.is_image = is_image              # 是否为图片
         self.size_bytes = size_bytes          # 文件大小（字节）
         self.added_time = added_time          # 添加时间 "YYYY-MM-DD HH:MM:SS"
+        self.content_hash = content_hash      # 文件内容 sha256，用于拖拽去重
 
     def to_dict(self):
         """序列化为字典"""
@@ -69,6 +85,7 @@ class AssetInfo:
             "is_image": self.is_image,
             "size_bytes": self.size_bytes,
             "added_time": self.added_time,
+            "content_hash": self.content_hash,
         }
 
     @classmethod
@@ -81,6 +98,7 @@ class AssetInfo:
             is_image=bool(d.get("is_image", False)),
             size_bytes=int(d.get("size_bytes", 0) or 0),
             added_time=str(d.get("added_time", "")),
+            content_hash=str(d.get("content_hash", "") or ""),
         )
 
     def size_display(self) -> str:
@@ -121,6 +139,7 @@ class TempAssetManager:
         self._max_days = max(0, max_days)
         self._assets = []                # 内存素材列表
         self._next_id = 1                # 下一个自增 asset_id（不复用）
+        self._hash_index = {}            # content_hash -> asset_id 索引（拖拽去重）
 
         # 确保 temp_assets/ 和 data/ 目录存在
         try:
@@ -168,10 +187,20 @@ class TempAssetManager:
                 invalid_ids = {a.asset_id for a in invalid}
                 self._assets = [a for a in self._assets if a.asset_id not in invalid_ids]
                 self._save()
+
+            # 构建 content_hash 索引（仅保留文件仍有效的记录）
+            self._rebuild_hash_index()
         except Exception:
             # json 解析异常或文件损坏 → 初始化空列表，保证不崩溃
             self._assets = []
             self._next_id = 1
+
+    def _rebuild_hash_index(self):
+        """依据当前内存素材列表重建 content_hash -> asset_id 索引"""
+        self._hash_index = {}
+        for a in self._assets:
+            if a.content_hash:
+                self._hash_index[a.content_hash] = a.asset_id
 
     def _save(self):
         """统一保存：将内存素材列表一次性写入磁盘 json。"""
@@ -257,10 +286,25 @@ class TempAssetManager:
         """
         复制源文件到 temp_assets/，加入素材列表。
         超出上限时自动按 added_time 升序淘汰最旧的（连同文件一起删除）。
+        去重（任务 6.3）：若内容哈希（sha256）已存在且文件仍有效，
+        视为重复拖入 —— 不再复制/新增，仅刷新其 added_time（移到最新，
+        避免被淘汰）并返回已有 asset_id。
         返回新素材的 asset_id；失败返回 -1。
         """
         if not source_path or not os.path.isfile(source_path):
             return -1
+
+        # ---- 去重判断：基于内容哈希 ----
+        src_hash = _file_sha256(source_path)
+        if src_hash and src_hash in self._hash_index:
+            existing_id = self._hash_index[src_hash]
+            existing = next((a for a in self._assets if a.asset_id == existing_id), None)
+            if existing is not None and existing.stored_path \
+                    and os.path.exists(existing.stored_path):
+                # 重复素材：刷新到最新时间，避免被过期/淘汰清理掉
+                existing.added_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self._save()
+                return existing.asset_id
 
         # 生成存储文件名：原文件名（去扩展名）+ 时间戳 + 原扩展名
         original_name = os.path.basename(source_path)
@@ -268,6 +312,8 @@ class TempAssetManager:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # 防止文件名过长截断
         name_stem = name_stem[:30]
+        # 净化落盘文件名中的 Windows 非法字符，避免 shutil.copy2 失败
+        name_stem = sanitize_filename(name_stem)
         stored_filename = f"{name_stem}_{timestamp}{ext}"
         stored_path = os.path.join(self._assets_dir, stored_filename)
 
@@ -293,13 +339,16 @@ class TempAssetManager:
         # 创建素材记录
         asset = AssetInfo(
             asset_id=self._next_id,
-            original_name=original_name,
+            original_name=sanitize_filename(original_name),
             stored_path=stored_path,
             is_image=_is_image(original_name),
             size_bytes=size_bytes,
             added_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            content_hash=src_hash,
         )
         self._assets.append(asset)
+        if src_hash:
+            self._hash_index[src_hash] = asset.asset_id
         self._next_id += 1
 
         # 超出上限淘汰最旧的
@@ -320,6 +369,8 @@ class TempAssetManager:
                     os.remove(oldest.stored_path)
             except OSError:
                 pass
+        # 淘汰可能移除记录，重建索引保持一致
+        self._rebuild_hash_index()
 
     def delete_asset(self, asset_id: int) -> bool:
         """
@@ -335,6 +386,7 @@ class TempAssetManager:
                 except OSError:
                     pass
                 self._assets.pop(i)
+                self._rebuild_hash_index()
                 self._save()
                 return True
         return False
@@ -368,6 +420,7 @@ class TempAssetManager:
         if invalid:
             invalid_ids = {a.asset_id for a in invalid}
             self._assets = [a for a in self._assets if a.asset_id not in invalid_ids]
+            self._rebuild_hash_index()
             self._save()
 
     def clear_all(self) -> int:
@@ -383,6 +436,7 @@ class TempAssetManager:
             except OSError:
                 pass
         self._assets = []
+        self._rebuild_hash_index()
         self._save()
         return count
 

@@ -26,7 +26,79 @@
 
 import os
 import json
+import threading
 from datetime import datetime
+
+
+# ====================================================================
+# 去抖写盘器
+# ====================================================================
+class _DebouncedSaver:
+    """
+    线程安全的去抖写盘器。
+
+    高频调用 schedule() 时，仅在「连续调用平息后等待 interval 秒」
+    才真正执行一次 callback（合并多次写入）。
+    - 合并写入：窗口期内任意次 schedule 只触发一次真实写盘
+    - 线程安全：内部用锁保护定时器，可在主线程或任意线程调用
+    - flush()：立即触发未决写盘并等待完成（程序退出/关键落盘前用）
+    - cancel()：取消未决写盘
+
+    设计上不依赖 Qt，避免 fragment_manager 模块被绑定到 GUI 事件循环，
+    同时也兼容 Qt 主线程调用（callback 在定时器线程执行，不触碰 GUI）。
+    """
+
+    def __init__(self, interval: float, callback):
+        self._interval = interval
+        self._callback = callback
+        self._lock = threading.Lock()
+        self._timer = None
+        self._pending = False
+
+    def schedule(self):
+        """安排一次延迟写盘（去抖）。"""
+        with self._lock:
+            self._pending = True
+            if self._timer is not None:
+                self._timer.cancel()
+            self._timer = threading.Timer(self._interval, self._fire)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def _fire(self):
+        with self._lock:
+            self._timer = None
+            if not self._pending:
+                return
+            self._pending = False
+            callback = self._callback
+        # 在锁外执行回调，避免死锁
+        try:
+            callback()
+        except Exception:
+            pass
+
+    def flush(self):
+        """立即触发未决写盘并等待其执行完毕（同步）。"""
+        with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            pending = self._pending
+            self._pending = False
+        if pending:
+            try:
+                self._callback()
+            except Exception:
+                pass
+
+    def cancel(self):
+        """取消未决写盘（不执行）。"""
+        with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            self._pending = False
 
 
 # 碎片类型常量
@@ -106,11 +178,19 @@ class FragmentManager:
     UI 层禁止直接读写 fragments.json 文件。
     """
 
+    # 去抖写盘间隔（秒）：高频碎片新增在此窗口内合并为一次落盘
+    SAVE_DEBOUNCE_SECONDS = 1.0
+
     def __init__(self, json_path: str):
         self._json_path = json_path     # fragments.json 完整路径
         self._fragments = []            # 内存碎片列表
         self._next_id = 1               # 下一个自增 fragment_id（不复用）
+        self._saver = _DebouncedSaver(self.SAVE_DEBOUNCE_SECONDS, self._save)
         self._load()
+
+    def close(self):
+        """释放资源：强制落盘所有未决变更并停止定时器（程序退出时调用）。"""
+        self._saver.flush()
 
     # ---------------- 持久化 ----------------
     def _load(self):
@@ -142,7 +222,7 @@ class FragmentManager:
             self._next_id = 1
 
     def _save(self):
-        """统一保存：将内存碎片列表一次性写入磁盘 json（原子写入）"""
+        """统一保存：将内存碎片列表一次性写入磁盘 json（原子写入）。"""
         data = {
             "fragments": [f.to_dict() for f in self._fragments],
             "next_id": self._next_id,
@@ -151,10 +231,22 @@ class FragmentManager:
             os.makedirs(os.path.dirname(self._json_path), exist_ok=True)
             tmp_path = self._json_path + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+                json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
             os.replace(tmp_path, self._json_path)
         except OSError:
             pass
+
+    def save(self):
+        """立即落盘（同步）。用于需要保证数据已写入磁盘的场景，例如程序退出。"""
+        self._saver.flush()
+
+    def mark_dirty(self):
+        """标记数据已变更，安排一次去抖写盘（高频新增由此合并写入）。"""
+        self._saver.schedule()
+
+    def flush(self):
+        """立即落盘所有未决变更（同步）。"""
+        self._saver.flush()
 
     # ---------------- 增 ----------------
     # 重复检测窗口：以某条碎片为中心，向上6条 + 自己 + 向下6条，
@@ -186,7 +278,7 @@ class FragmentManager:
         )
         self._fragments.append(fragment)
         self._next_id += 1
-        self._save()
+        self.mark_dirty()
         return fragment.fragment_id
 
     def add_clipboard_text(self, content: str, source: str = "") -> int:
@@ -211,7 +303,7 @@ class FragmentManager:
         before = len(self._fragments)
         self._fragments = [f for f in self._fragments if f.fragment_id != fragment_id]
         if len(self._fragments) < before:
-            self._save()
+            self.mark_dirty()
             return True
         return False
 
@@ -222,7 +314,7 @@ class FragmentManager:
         self._fragments = [f for f in self._fragments if f.fragment_id not in id_set]
         deleted = before - len(self._fragments)
         if deleted > 0:
-            self._save()
+            self.mark_dirty()
         return deleted
 
     def clear_all(self) -> int:
@@ -230,7 +322,7 @@ class FragmentManager:
         count = len(self._fragments)
         self._fragments = []
         if count > 0:
-            self._save()
+            self.mark_dirty()
         return count
 
     def clear_by_type(self, ftype: str) -> int:
@@ -239,7 +331,7 @@ class FragmentManager:
         self._fragments = [f for f in self._fragments if f.type != ftype]
         deleted = before - len(self._fragments)
         if deleted > 0:
-            self._save()
+            self.mark_dirty()
         return deleted
 
     # ---------------- 查 ----------------
@@ -312,5 +404,5 @@ class FragmentManager:
         # 取出要淘汰的 fragment_id
         remove_ids = {f.fragment_id for f in sorted_frags[:to_remove]}
         self._fragments = [f for f in self._fragments if f.fragment_id not in remove_ids]
-        self._save()
+        self.mark_dirty()
         return to_remove

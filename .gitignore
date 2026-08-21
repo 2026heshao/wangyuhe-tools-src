@@ -16,3 +16,12 @@ Thumbs.db
 
 # 工作记忆（不应进仓库）
 .workbuddy/
+
+# 本地数据与私人文档（不进仓库）
+*.docx
+*.docx.bak
+data/
+temp_assets/
+_t_out.txt
+优化调研清单.md
+build.spec

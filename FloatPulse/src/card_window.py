@@ -49,18 +49,8 @@ from src.task_manager import TaskManager
 from src.note_manager import NoteManager
 from src.nav_manager import NavManager
 from src.theme import get_card_window_qss, get_menu_qss
-
-
-# ====================================================================
-# 辅助函数：获取可用屏幕几何（判空防止无屏幕环境崩溃）
-# ====================================================================
-def _get_screen_geometry():
-    from PyQt6.QtWidgets import QApplication
-    from PyQt6.QtCore import QRect
-    screen = QApplication.primaryScreen()
-    if screen is not None:
-        return screen.availableGeometry()
-    return QRect(0, 0, 1920, 1080)
+from src.app_paths import get_screen_geometry
+from src.constants import NOTE_AUTOSAVE_INTERVAL_MS
 
 
 # Tab 定义（纯图标，无数字）
@@ -320,7 +310,7 @@ class CardWindow(QWidget):
         self._drag_offset = QPoint()
         self._note_save_timer = QTimer(self)
         self._note_save_timer.setSingleShot(True)
-        self._note_save_timer.setInterval(800)
+        self._note_save_timer.setInterval(NOTE_AUTOSAVE_INTERVAL_MS)
         self._note_save_timer.timeout.connect(self._on_save_note)
 
         # 指示器初始化守卫（防止首次显示时动画到错误位置）
@@ -1329,7 +1319,7 @@ class CardWindow(QWidget):
 
     def popup_near(self, ball_rect):
         self._switch_mode(self._last_mode)
-        screen = _get_screen_geometry()
+        screen = get_screen_geometry()
         x = ball_rect.left() - self.width() - 12
         y = ball_rect.top() - (self.height() - ball_rect.height()) // 2
         if x < screen.left():
