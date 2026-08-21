@@ -1,0 +1,1197 @@
+{
+  "schema_version": "1.0",
+  "rules": [
+    {
+      "app_name": "Chrome",
+      "app_alias": ["Google Chrome", "谷歌浏览器", "Chrome 浏览器", "chrome"],
+      "category": "浏览器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Cache\\Cache_Data",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Code Cache",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\GPUCache",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\CachedData",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Service Worker\\CacheStorage"
+      ],
+      "exclude_patterns": [
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Login Data*",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Cookies*",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\History*",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Bookmarks*",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Web Data*",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Preferences*"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "网页缓存/代码缓存/GPU缓存/Service Worker，Chrome 会自动重建；不触及登录态、历史与收藏。"
+    },
+    {
+      "app_name": "Chrome",
+      "app_alias": ["Google Chrome", "谷歌浏览器", "Chrome 浏览器", "chrome"],
+      "category": "浏览器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Login Data*",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Cookies*",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Web Data*",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\History*",
+        "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\*\\Bookmarks*"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "high",
+      "note": "登录凭证/历史/收藏，属账号与核心数据；仅作黑名单记录，扫描阶段直接过滤，绝不展示。"
+    },
+    {
+      "app_name": "Edge",
+      "app_alias": ["Microsoft Edge", "Edge 浏览器", "msedge"],
+      "category": "浏览器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Cache\\Cache_Data",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Code Cache",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\GPUCache",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\CachedData",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Service Worker\\CacheStorage"
+      ],
+      "exclude_patterns": [
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Login Data*",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Cookies*",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\History*",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Bookmarks*",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Web Data*"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "网页缓存/代码缓存/GPU缓存/Service Worker，Edge 会自动重建；不触及登录态、历史与收藏。"
+    },
+    {
+      "app_name": "Edge",
+      "app_alias": ["Microsoft Edge", "Edge 浏览器", "msedge"],
+      "category": "浏览器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Login Data*",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Cookies*",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\History*",
+        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\*\\Bookmarks*"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "high",
+      "note": "登录凭证/历史/收藏，属账号与核心数据；仅作黑名单记录，扫描阶段直接过滤，绝不展示。"
+    },
+    {
+      "app_name": "VSCode",
+      "app_alias": ["Visual Studio Code", "VS Code", "code"],
+      "category": "开发工具",
+      "glob_patterns": [
+        "%APPDATA%\\Code\\Cache",
+        "%APPDATA%\\Code\\CachedData",
+        "%APPDATA%\\Code\\Code Cache",
+        "%APPDATA%\\Code\\GPUCache",
+        "%APPDATA%\\Code\\Service Worker\\CacheStorage",
+        "%APPDATA%\\Code\\logs"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\Code\\User\\settings.json",
+        "%APPDATA%\\Code\\User\\keybindings.json",
+        "%APPDATA%\\Code\\User\\snippets",
+        "%APPDATA%\\Code\\User\\globalStorage"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "缓存/日志，可重建；不含 settings.json、快捷键与扩展数据。"
+    },
+    {
+      "app_name": "VSCode",
+      "app_alias": ["Visual Studio Code", "VS Code", "code"],
+      "category": "开发工具",
+      "glob_patterns": [
+        "%APPDATA%\\Code\\User\\workspaceStorage"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "high",
+      "note": "工作区 UI 状态缓存，删除会丢失窗口布局与未保存的编辑器状态，不影响代码文件本身。"
+    },
+    {
+      "app_name": "VSCode",
+      "app_alias": ["Visual Studio Code", "VS Code", "code"],
+      "category": "开发工具",
+      "glob_patterns": [
+        "%APPDATA%\\Code\\User\\settings.json",
+        "%APPDATA%\\Code\\User\\keybindings.json",
+        "%APPDATA%\\Code\\User\\snippets",
+        "%APPDATA%\\Code\\User\\globalStorage"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "high",
+      "note": "编辑器核心配置与扩展状态；仅作黑名单记录，扫描阶段直接过滤，绝不展示。"
+    },
+    {
+      "app_name": "Cursor",
+      "app_alias": ["Cursor 编辑器", "cursor"],
+      "category": "开发工具",
+      "glob_patterns": [
+        "%APPDATA%\\Cursor\\Cache",
+        "%APPDATA%\\Cursor\\CachedData",
+        "%APPDATA%\\Cursor\\Code Cache",
+        "%APPDATA%\\Cursor\\GPUCache",
+        "%APPDATA%\\Cursor\\logs"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\Cursor\\User\\settings.json",
+        "%APPDATA%\\Cursor\\User\\keybindings.json",
+        "%APPDATA%\\Cursor\\User\\globalStorage"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "medium",
+      "note": "基于 VSCode 内核，缓存目录结构与其一致；不同版本目录可能微调，待本机核验。"
+    },
+    {
+      "app_name": "Cursor",
+      "app_alias": ["Cursor 编辑器", "cursor"],
+      "category": "开发工具",
+      "glob_patterns": [
+        "%APPDATA%\\Cursor\\User\\workspaceStorage"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "工作区 UI 状态缓存，删除丢失窗口布局；不影响代码文件。待本机核验。"
+    },
+    {
+      "app_name": "Cursor",
+      "app_alias": ["Cursor 编辑器", "cursor"],
+      "category": "开发工具",
+      "glob_patterns": [
+        "%APPDATA%\\Cursor\\User\\settings.json",
+        "%APPDATA%\\Cursor\\User\\keybindings.json",
+        "%APPDATA%\\Cursor\\User\\globalStorage"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "编辑器核心配置/扩展状态/账号登录态；仅作黑名单记录，扫描阶段直接过滤，绝不展示。"
+    },
+    {
+      "app_name": "pip",
+      "app_alias": ["Python pip", "pip 缓存"],
+      "category": "包管理器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\pip\\Cache",
+        "%LOCALAPPDATA%\\pip\\cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "已下载 wheel/sdist 缓存，删除后 pip 需要时重新下载，不丢失已安装包。"
+    },
+    {
+      "app_name": "npm",
+      "app_alias": ["npm 缓存", "node npm"],
+      "category": "包管理器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\npm-cache",
+        "%APPDATA%\\npm-cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "npm 下载缓存(_cacache)，删除后重新下载；旧版本 npm 曾用 %APPDATA%\\npm-cache。"
+    },
+    {
+      "app_name": "WPS",
+      "app_alias": ["WPS Office", "WPS 办公", "金山 WPS"],
+      "category": "办公软件",
+      "glob_patterns": [
+        "%APPDATA%\\Kingsoft\\office6\\backup",
+        "%LOCALAPPDATA%\\Kingsoft\\WPS Cloud Files"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "自动备份/云文档缓存；删除可能丢失未保存文档的恢复点。路径随版本变化大，待本机核验。"
+    },
+    {
+      "app_name": "WPS",
+      "app_alias": ["WPS Office", "WPS 办公", "金山 WPS"],
+      "category": "办公软件",
+      "glob_patterns": [
+        "%APPDATA%\\Kingsoft\\office6\\*.dat"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "low",
+      "note": "授权/激活信息，属核心配置；仅作黑名单记录，绝不展示。路径待本机核验。"
+    },
+    {
+      "app_name": "NVIDIA",
+      "app_alias": ["NVIDIA GPU 缓存", "NVIDIA 着色器缓存", "N卡缓存"],
+      "category": "显卡驱动缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\NVIDIA\\DXCache",
+        "%LOCALAPPDATA%\\NVIDIA\\GLCache",
+        "%LOCALAPPDATA%\\NVIDIA\\ComputeCache",
+        "%PROGRAMDATA%\\NVIDIA Corporation\\NV_Cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "着色器/计算缓存，删除后首次加载会重新编译（可能略卡）；NV_Cache 位于 ProgramData，可能需要管理员权限。"
+    },
+    {
+      "app_name": "系统临时目录",
+      "app_alias": ["用户 Temp", "Temp 目录", "系统临时文件"],
+      "category": "系统临时文件",
+      "glob_patterns": [
+        "%TEMP%"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "当前用户临时目录（等价于 %LOCALAPPDATA%\\Temp）；正在被占用的文件会被跳过，不删除 %WINDIR%\\Temp（需管理员权限）。"
+    },
+    {
+      "app_name": "微信",
+      "app_alias": ["WeChat", "Weixin", "微信客户端"],
+      "category": "即时通讯",
+      "glob_patterns": [
+        "%USERPROFILE%\\Documents\\WeChat Files\\*\\FileStorage\\Cache",
+        "%USERPROFILE%\\Documents\\WeChat Files\\*\\FileStorage\\Image",
+        "%USERPROFILE%\\Documents\\WeChat Files\\*\\FileStorage\\Video",
+        "%USERPROFILE%\\Documents\\xwechat_files\\*\\FileStorage\\Cache",
+        "%USERPROFILE%\\Documents\\xwechat_files\\*\\FileStorage\\Image",
+        "%USERPROFILE%\\Documents\\xwechat_files\\*\\FileStorage\\Video"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "缓存/已接收图片视频；删除会丢失本地图片与视频，且服务器保留期过后无法重新下载。"
+    },
+    {
+      "app_name": "微信",
+      "app_alias": ["WeChat", "Weixin", "微信客户端"],
+      "category": "即时通讯",
+      "glob_patterns": [
+        "%USERPROFILE%\\Documents\\WeChat Files\\*\\FileStorage\\Msg",
+        "%USERPROFILE%\\Documents\\WeChat Files\\*\\FileStorage\\MsgAttach",
+        "%USERPROFILE%\\Documents\\xwechat_files\\*\\FileStorage\\Msg",
+        "%APPDATA%\\Tencent\\WeChat",
+        "%APPDATA%\\Tencent\\xwechat_files"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "low",
+      "note": "聊天记录数据库与账号配置，删除即丢失聊天记录/需重新登录；仅作黑名单记录，绝不展示。路径随 3.x/4.0 差异大，待本机核验。"
+    },
+    {
+      "app_name": "QQ",
+      "app_alias": ["腾讯QQ", "QQ NT", "QQNT", "手机QQ电脑版"],
+      "category": "即时通讯",
+      "glob_patterns": [
+        "%USERPROFILE%\\Documents\\Tencent Files\\*\\Image",
+        "%USERPROFILE%\\Documents\\Tencent Files\\*\\Video",
+        "%USERPROFILE%\\Documents\\Tencent Files\\*\\FileRecv"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "已接收图片/视频/文件；删除会丢失本地文件，请确认无重要文件后再清理。QQNT 与旧版路径差异大，待本机核验。"
+    },
+    {
+      "app_name": "QQ",
+      "app_alias": ["腾讯QQ", "QQ NT", "QQNT", "手机QQ电脑版"],
+      "category": "即时通讯",
+      "glob_patterns": [
+        "%USERPROFILE%\\Documents\\Tencent Files\\*\\Msg*",
+        "%USERPROFILE%\\Documents\\Tencent Files\\*\\nt_qq",
+        "%APPDATA%\\Tencent\\QQ"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "low",
+      "note": "聊天记录数据库与账号配置；仅作黑名单记录，绝不展示。QQNT 与旧版路径差异大，待本机核验。"
+    },
+    {
+      "app_name": "网易云音乐",
+      "app_alias": ["网易云", "CloudMusic", "Netease"],
+      "category": "影音娱乐",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Netease\\CloudMusic\\Cache",
+        "%LOCALAPPDATA%\\Netease\\CloudMusic\\webdata"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "歌曲/封面缓存，删除会丢失已缓存内容；路径随版本变化，待本机核验。"
+    },
+    {
+      "app_name": "腾讯视频",
+      "app_alias": ["QQLive", "腾讯视频客户端"],
+      "category": "影音娱乐",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Tencent\\QQLive\\Cache",
+        "%APPDATA%\\Tencent\\QQLive\\Cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "视频缓存，删除会丢失已缓存视频；路径待本机核验。"
+    },
+    {
+      "app_name": "哔哩哔哩",
+      "app_alias": ["B站", "bilibili"],
+      "category": "影音娱乐",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\bilibili\\Cache",
+        "%APPDATA%\\bilibili\\Cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "视频/直播缓存，删除会丢失已缓存内容；路径待本机核验。"
+    },
+    {
+      "app_name": "钉钉",
+      "app_alias": ["DingTalk", "钉钉客户端"],
+      "category": "办公软件",
+      "glob_patterns": [
+        "%APPDATA%\\DingTalk\\*\\cache",
+        "%LOCALAPPDATA%\\DingTalk\\*\\cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "聊天图片/文件缓存，删除会丢失本地缓存文件；路径待本机核验。"
+    },
+    {
+      "app_name": "企业微信",
+      "app_alias": ["WXWork", "WeCom"],
+      "category": "办公软件",
+      "glob_patterns": [
+        "%USERPROFILE%\\Documents\\WXWork\\*\\Cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "聊天图片/文件缓存，删除会丢失本地缓存文件；路径待本机核验。"
+    },
+    {
+      "app_name": "迅雷",
+      "app_alias": ["Thunder", "迅雷下载"],
+      "category": "下载工具",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Thunder Network\\Thunder\\Profiles\\*\\cache",
+        "%LOCALAPPDATA%\\Thunder Network\\Thunder\\vod_cache_data"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "下载/边下边播缓存，删除会丢失未完成任务缓存；路径待本机核验。"
+    },
+    {
+      "app_name": "百度网盘",
+      "app_alias": ["BaiduNetdisk", "百度云盘"],
+      "category": "网盘工具",
+      "glob_patterns": [
+        "%APPDATA%\\baidu\\BaiduNetdisk\\Cache",
+        "%LOCALAPPDATA%\\baidu\\BaiduNetdisk\\Cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "上传/下载临时缓存，删除不影响已同步文件；路径待本机核验。"
+    },
+    {
+      "app_name": "WeGame",
+      "app_alias": ["腾讯游戏平台", "WeGame平台"],
+      "category": "游戏平台",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Tencent\\WeGame\\*\\Cache",
+        "%ProgramData%\\Tencent\\WeGame\\*\\Cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "游戏下载/更新缓存，删除不影响已安装游戏；路径待本机核验。"
+    },
+    {
+      "app_name": "Firefox",
+      "app_alias": ["Mozilla Firefox", "火狐", "Firefox 浏览器"],
+      "category": "浏览器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2",
+        "%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles\\*\\Cache",
+        "%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles\\*\\startupCache"
+      ],
+      "exclude_patterns": [
+        "%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles\\*\\logins.json",
+        "%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles\\*\\places.sqlite",
+        "%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cookies.sqlite",
+        "%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles\\*\\bookmarks.html"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "网页/启动缓存，Firefox 会自动重建；不触及密码、历史与书签。"
+    },
+    {
+      "app_name": "Trae",
+      "app_alias": ["Trae IDE", "Trae AI", "Trae 编辑器", "Trae CN"],
+      "category": "开发工具",
+      "glob_patterns": [
+        "%APPDATA%\\Trae CN\\Cache",
+        "%APPDATA%\\Trae CN\\Code Cache",
+        "%APPDATA%\\Trae CN\\CachedData",
+        "%APPDATA%\\Trae CN\\GPUCache",
+        "%APPDATA%\\Trae CN\\DawnCache",
+        "%APPDATA%\\Trae CN\\logs",
+        "%APPDATA%\\Trae\\Cache",
+        "%APPDATA%\\Trae\\Code Cache",
+        "%APPDATA%\\Trae\\CachedData",
+        "%APPDATA%\\Trae\\GPUCache",
+        "%APPDATA%\\Trae\\DawnCache",
+        "%APPDATA%\\Trae\\logs"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\Trae CN\\User\\settings.json",
+        "%APPDATA%\\Trae CN\\User\\globalStorage",
+        "%APPDATA%\\Trae\\User\\settings.json",
+        "%APPDATA%\\Trae\\User\\globalStorage"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "medium",
+      "note": "基于 VSCode 内核，缓存结构与 Cursor 一致；国内版用 Trae CN、国际版用 Trae，目录随版本差异，待本机核验。"
+    },
+    {
+      "app_name": "Trae",
+      "app_alias": ["Trae IDE", "Trae AI", "Trae 编辑器", "Trae CN"],
+      "category": "开发工具",
+      "glob_patterns": [
+        "%APPDATA%\\Trae CN\\ModularData\\ai-agent\\snapshot",
+        "%APPDATA%\\Trae\\ModularData\\ai-agent\\snapshot"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "AI 对话问答快照，删除会丢失本地历史对话内容；不影响项目代码。待本机核验。"
+    },
+    {
+      "app_name": "Trae",
+      "app_alias": ["Trae IDE", "Trae AI", "Trae 编辑器", "Trae CN"],
+      "category": "开发工具",
+      "glob_patterns": [
+        "%APPDATA%\\Trae CN\\User\\settings.json",
+        "%APPDATA%\\Trae CN\\User\\globalStorage",
+        "%APPDATA%\\Trae\\User\\settings.json",
+        "%APPDATA%\\Trae\\User\\globalStorage"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "编辑器核心配置/扩展状态/账号登录态；仅作黑名单记录，扫描阶段直接过滤，绝不展示。待本机核验。"
+    },
+    {
+      "app_name": "豆包",
+      "app_alias": ["Doubao", "豆包 AI", "豆包电脑版"],
+      "category": "AI 应用",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Doubao\\Cache",
+        "%LOCALAPPDATA%\\Doubao\\Code Cache",
+        "%LOCALAPPDATA%\\Doubao\\GPUCache",
+        "%LOCALAPPDATA%\\Doubao\\CachedData",
+        "%APPDATA%\\Doubao\\cache\\vectorstore"
+      ],
+      "exclude_patterns": [
+        "%LOCALAPPDATA%\\Doubao\\User Data",
+        "%APPDATA%\\Doubao\\config",
+        "%APPDATA%\\Doubao\\Local Storage"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "Electron 缓存/本地知识库向量缓存，删除会丢失已缓存对话与生成内容；不触及登录配置。部分版本可能用中文目录“豆包”，待本机核验。"
+    },
+    {
+      "app_name": "微信开发者工具",
+      "app_alias": ["微信web开发者工具", "微信小程序开发工具", "WeChat DevTools", "wechat_devtools"],
+      "category": "开发工具",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\微信开发者工具\\User Data\\*\\Cache",
+        "%LOCALAPPDATA%\\微信开发者工具\\User Data\\*\\CodeCache",
+        "%LOCALAPPDATA%\\微信web开发者工具\\User Data\\*\\Cache",
+        "%LOCALAPPDATA%\\微信web开发者工具\\User Data\\*\\CodeCache"
+      ],
+      "exclude_patterns": [
+        "%LOCALAPPDATA%\\微信开发者工具\\User Data\\*\\WeappApplication"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "小程序工具编译/基础库缓存，删除会重新编译下载基础库，可能需重新登录；不删项目源码。目录名为中文，待本机核验。"
+    },
+    {
+      "app_name": "钉钉",
+      "app_alias": ["DingTalk", "钉钉客户端"],
+      "category": "办公软件",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\DingTalk\\Cache",
+        "%LOCALAPPDATA%\\DingTalk\\Temp",
+        "%APPDATA%\\DingTalk\\cache",
+        "%APPDATA%\\DingTalk\\logs"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "medium",
+      "note": "临时缓存/日志，删除后钉钉会重建；不影响聊天记录。路径待本机核验。"
+    },
+    {
+      "app_name": "钉钉",
+      "app_alias": ["DingTalk", "钉钉客户端"],
+      "category": "办公软件",
+      "glob_patterns": [
+        "%APPDATA%\\DingTalk\\Data",
+        "%LOCALAPPDATA%\\DingTalk\\Data",
+        "%APPDATA%\\DingTalk\\DB",
+        "%LOCALAPPDATA%\\DingTalk\\DB",
+        "%LOCALAPPDATA%\\DingTalk\\UserData",
+        "%APPDATA%\\DingTalk\\config.json"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "聊天记录数据库/账号登录态/配置；仅作黑名单记录，扫描阶段直接过滤，绝不展示。路径待本机核验。"
+    },
+    {
+      "app_name": "企业微信",
+      "app_alias": ["WXWork", "WeCom"],
+      "category": "办公软件",
+      "glob_patterns": [
+        "%APPDATA%\\Tencent\\WXWork\\Cache",
+        "%APPDATA%\\Tencent\\WXWork\\Temp",
+        "%USERPROFILE%\\Documents\\WXWork\\*\\WXWorkCefCache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "medium",
+      "note": "CEF 内置浏览器缓存/临时文件，删除后自动重建，不影响聊天记录；路径待本机核验。"
+    },
+    {
+      "app_name": "Microsoft Teams",
+      "app_alias": ["Teams", "微软团队"],
+      "category": "办公软件",
+      "glob_patterns": [
+        "%APPDATA%\\Microsoft\\Teams\\Cache",
+        "%APPDATA%\\Microsoft\\Teams\\Code Cache",
+        "%APPDATA%\\Microsoft\\Teams\\Cache_Data",
+        "%APPDATA%\\Microsoft\\Teams\\GPUCache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "网页/GPU 缓存，自动重建；不影响登录与消息历史。"
+    },
+    {
+      "app_name": "Discord",
+      "app_alias": ["discord 桌面版"],
+      "category": "即时通讯",
+      "glob_patterns": [
+        "%APPDATA%\\discord\\Cache",
+        "%APPDATA%\\discord\\Code Cache",
+        "%APPDATA%\\discord\\GPUCache",
+        "%APPDATA%\\discord\\CachedData"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "Electron 网页/GPU 缓存，自动重建；不影响账号与消息。"
+    },
+    {
+      "app_name": "Yarn",
+      "app_alias": ["yarn 缓存", "yarn"],
+      "category": "包管理器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Yarn\\Cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "yarn 依赖包缓存，删除后需重新下载；不丢失 node_modules 与已安装依赖。"
+    },
+    {
+      "app_name": "pnpm",
+      "app_alias": ["pnpm 缓存", "pnpm store"],
+      "category": "包管理器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\pnpm\\store"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "pnpm 全局内容寻址存储；删除后已安装依赖不受影响，但后续 install 需重新拉取。"
+    },
+    {
+      "app_name": "Go",
+      "app_alias": ["golang", "GOCACHE", "go 编译缓存"],
+      "category": "编程语言工具链",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\go-build"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "Go 编译缓存；删除后重新编译会略慢，不影响已编译产物与源码。"
+    },
+    {
+      "app_name": "Rust",
+      "app_alias": ["cargo", "cargo registry", "rust 依赖缓存"],
+      "category": "编程语言工具链",
+      "glob_patterns": [
+        "%USERPROFILE%\\.cargo\\registry\\cache",
+        "%USERPROFILE%\\.cargo\\registry\\src"
+      ],
+      "exclude_patterns": [
+        "%USERPROFILE%\\.cargo\\registry\\index"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "cargo 下载的 crate 源码/打包缓存，删除后重新构建会重新下载；保留 registry\\index 索引。待本机核验。"
+    },
+    {
+      "app_name": "阿里云盘",
+      "app_alias": ["aDrive", "阿里云盘客户端", "Alibaba Cloud Disk"],
+      "category": "网盘工具",
+      "glob_patterns": [
+        "%APPDATA%\\aDrive\\Cache",
+        "%LOCALAPPDATA%\\aDrive\\Cache",
+        "%LOCALAPPDATA%\\aliyun\\aDrive\\Cache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\aDrive\\UserData"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "上传/下载/预览临时缓存，删除不影响云端文件；目录名 aDrive，路径待本机核验。"
+    },
+    {
+      "app_name": "夸克网盘",
+      "app_alias": ["夸克", "Quark 网盘", "夸克云盘"],
+      "category": "网盘工具",
+      "glob_patterns": [
+        "%APPDATA%\\Quark\\Cache",
+        "%LOCALAPPDATA%\\Quark\\Cache",
+        "%USERPROFILE%\\.quark\\cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "视频预览/缩略图/中转缓存，删除会丢失未完成任务缓存；PC 端目录名随版本差异，待本机核验。"
+    },
+    {
+      "app_name": "坚果云",
+      "app_alias": ["Nutstore", "坚果云盘", "Jianguoyun"],
+      "category": "网盘工具",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Nutstore\\Cache",
+        "%LOCALAPPDATA%\\Nutstore\\.tmp"
+      ],
+      "exclude_patterns": [
+        "%LOCALAPPDATA%\\Nutstore\\Nutstore.db*",
+        "%LOCALAPPDATA%\\Nutstore\\*.conf"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "同步临时/缩略图缓存，删除后自动重建，不影响本地文件与账号。"
+    },
+    {
+      "app_name": "115网盘",
+      "app_alias": ["115", "115 客户端", "115网盘客户端"],
+      "category": "网盘工具",
+      "glob_patterns": [
+        "%APPDATA%\\115\\Cache",
+        "%LOCALAPPDATA%\\115\\Cache",
+        "%APPDATA%\\115China\\Cache",
+        "%APPDATA%\\115Chrome\\Cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "文档预览/缩略图/边下边播缓存，删除不影响云端文件；PC 端目录名多样，待本机核验。"
+    },
+    {
+      "app_name": "QQ浏览器",
+      "app_alias": ["QQBrowser", "腾讯QQ浏览器"],
+      "category": "浏览器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Cache\\Cache_Data",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Code Cache",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\GPUCache",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\CachedData",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Service Worker\\CacheStorage",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\Cache"
+      ],
+      "exclude_patterns": [
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Login Data*",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Cookies*",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\History*",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Bookmarks*",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Web Data*",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Preferences*"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "medium",
+      "note": "Chromium 内核网页/GPU/Service Worker 缓存，自动重建；不触及登录态、历史与收藏。"
+    },
+    {
+      "app_name": "QQ浏览器",
+      "app_alias": ["QQBrowser", "腾讯QQ浏览器"],
+      "category": "浏览器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Login Data*",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Cookies*",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\History*",
+        "%LOCALAPPDATA%\\Tencent\\QQBrowser\\User Data\\*\\Bookmarks*"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "登录凭证/历史/收藏；仅作黑名单记录，扫描阶段直接过滤，绝不展示。"
+    },
+    {
+      "app_name": "搜狗浏览器",
+      "app_alias": ["SogouExplorer", "搜狗高速浏览器"],
+      "category": "浏览器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\Cache\\Cache_Data",
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\Code Cache",
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\GPUCache",
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\Cache",
+        "%APPDATA%\\SogouExplorer\\Webkit\\*\\Cache"
+      ],
+      "exclude_patterns": [
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\Login Data*",
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\Cookies*",
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\History*",
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\Bookmarks*",
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\Web Data*"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "medium",
+      "note": "网页/GPU 缓存（含旧版 Webkit 目录），自动重建；不触及登录态、历史与收藏。"
+    },
+    {
+      "app_name": "搜狗浏览器",
+      "app_alias": ["SogouExplorer", "搜狗高速浏览器"],
+      "category": "浏览器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\Login Data*",
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\Cookies*",
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\History*",
+        "%LOCALAPPDATA%\\SogouExplorer\\User Data\\*\\Bookmarks*"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "forbidden",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "登录凭证/历史/收藏；仅作黑名单记录，扫描阶段直接过滤，绝不展示。"
+    },
+    {
+      "app_name": "联想浏览器",
+      "app_alias": ["Lenovo Browser", "联想电脑管家浏览器"],
+      "category": "浏览器缓存",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Lenovo\\LbBrowser\\User Data\\*\\Cache\\Cache_Data",
+        "%LOCALAPPDATA%\\Lenovo\\LbBrowser\\User Data\\*\\Code Cache",
+        "%LOCALAPPDATA%\\Lenovo\\LbBrowser\\User Data\\*\\GPUCache",
+        "%LOCALAPPDATA%\\Lenovo\\LbBrowser\\User Data\\*\\CachedData"
+      ],
+      "exclude_patterns": [
+        "%LOCALAPPDATA%\\Lenovo\\LbBrowser\\User Data\\*\\Login Data*",
+        "%LOCALAPPDATA%\\Lenovo\\LbBrowser\\User Data\\*\\Cookies*",
+        "%LOCALAPPDATA%\\Lenovo\\LbBrowser\\User Data\\*\\History*",
+        "%LOCALAPPDATA%\\Lenovo\\LbBrowser\\User Data\\*\\Bookmarks*"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "Chromium 内核网页/GPU 缓存；联想浏览器的数据目录名随版本不同（LbBrowser/Lenovo Browser 等），待本机核验。"
+    },
+    {
+      "app_name": "爱奇艺",
+      "app_alias": ["爱奇艺视频", "iQIYI"],
+      "category": "影音娱乐",
+      "glob_patterns": [
+        "%APPDATA%\\iQIYIVideo\\*\\Cache",
+        "%LOCALAPPDATA%\\IQiyiVideo\\*\\Cache",
+        "%APPDATA%\\iQIYIVideo\\data\\videoCache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\iQIYIVideo\\UserData"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "边下边播/预览缩略图缓存，删除会丢失离线缓存视频；下载的视频默认走客户端可改的下载目录，非缓存。待本机核验。"
+    },
+    {
+      "app_name": "优酷",
+      "app_alias": ["优酷视频", "Youku"],
+      "category": "影音娱乐",
+      "glob_patterns": [
+        "%APPDATA%\\youku\\Cache",
+        "%LOCALAPPDATA%\\youku\\Cache",
+        "%APPDATA%\\youku\\Player\\Cache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\youku\\UserData"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "播放/预览临时缓存，删除会丢失离线缓存片段；待本机核验。"
+    },
+    {
+      "app_name": "芒果TV",
+      "app_alias": ["MangoTV", "芒果TV客户端"],
+      "category": "影音娱乐",
+      "glob_patterns": [
+        "%APPDATA%\\Mgtv\\*\\Cache",
+        "%LOCALAPPDATA%\\Mgtv\\*\\Cache",
+        "%APPDATA%\\MangoTV\\Cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "播放缓存/广告缓存，删除会丢失离线缓存视频；目录名随版本差异，待本机核验。"
+    },
+    {
+      "app_name": "抖音",
+      "app_alias": ["抖音电脑版", "Douyin PC"],
+      "category": "影音娱乐",
+      "glob_patterns": [
+        "%APPDATA%\\Douyin\\Cache",
+        "%LOCALAPPDATA%\\Douyin\\Cache",
+        "%LOCALAPPDATA%\\Douyin\\GPUCache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\Douyin\\Local Storage"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "Electron 视频预加载/网页缓存，删除会重新加载；目录名随版本差异，待本机核验。"
+    },
+    {
+      "app_name": "快手",
+      "app_alias": ["快手电脑版", "Kwai PC", "快手影业"],
+      "category": "影音娱乐",
+      "glob_patterns": [
+        "%APPDATA%\\KwaiPc\\Cache",
+        "%LOCALAPPDATA%\\KwaiPc\\Cache",
+        "%LOCALAPPDATA%\\klive\\*\\Cache"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "视频预加载/缩略图缓存，删除后重新加载；目录名随版本差异，待本机核验。"
+    },
+    {
+      "app_name": "Kimi",
+      "app_alias": ["Kimi AI", "Kimi 智能助手", "月之暗面"],
+      "category": "AI 应用",
+      "glob_patterns": [
+        "%APPDATA%\\Kimi\\Cache",
+        "%APPDATA%\\Kimi\\Code Cache",
+        "%APPDATA%\\Kimi\\GPUCache",
+        "%LOCALAPPDATA%\\Kimi\\Cache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\Kimi\\Local Storage"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "Electron 网页/GPU 缓存，删除不丢失账号与云端对话；本地缓存对话历史在 Local Storage，已排除。待本机核验。"
+    },
+    {
+      "app_name": "通义千问",
+      "app_alias": ["通义", "Qwen", "Tongyi", "千问"],
+      "category": "AI 应用",
+      "glob_patterns": [
+        "%APPDATA%\\Tongyi\\Cache",
+        "%LOCALAPPDATA%\\Tongyi\\Cache",
+        "%LOCALAPPDATA%\\Qwen\\Cache",
+        "%LOCALAPPDATA%\\通天塔\\Cache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\Tongyi\\Local Storage"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "桌面端 UI/对话快照缓存，删除后需重新加载；会话记录主要存云端，本地 Local Storage 已排除。待本机核验。"
+    },
+    {
+      "app_name": "文心一言",
+      "app_alias": ["文心", "ERNIE", "Baidu AI", "文心大模型"],
+      "category": "AI 应用",
+      "glob_patterns": [
+        "%APPDATA%\\BaiduYiyan\\Cache",
+        "%LOCALAPPDATA%\\Baidu\\BaiduAI\\Cache",
+        "%APPDATA%\\Baidu\\ERIEBot\\Cache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\BaiduYiyan\\Local Storage"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "Electron 网页/GPU 缓存，删除不影响账号与云端对话；目录名随版本差异，待本机核验。"
+    },
+    {
+      "app_name": "智谱清言",
+      "app_alias": ["ChatGLM", "智谱", "Zhipu", "GLM"],
+      "category": "AI 应用",
+      "glob_patterns": [
+        "%APPDATA%\\chatglm\\Cache",
+        "%LOCALAPPDATA%\\Zhipu\\Cache",
+        "%APPDATA%\\ZhipuAI\\Cache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\chatglm\\Local Storage"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "Electron 网页/GPU 缓存，删除不影响账号与云端对话；目录名随版本差异，待本机核验。"
+    },
+    {
+      "app_name": "DeepSeek",
+      "app_alias": ["深度求索", "DeepSeek 桌面版"],
+      "category": "AI 应用",
+      "glob_patterns": [
+        "%APPDATA%\\DeepSeek\\Cache",
+        "%APPDATA%\\DeepSeek\\Code Cache",
+        "%APPDATA%\\DeepSeek\\GPUCache",
+        "%LOCALAPPDATA%\\DeepSeek\\Cache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\DeepSeek\\Local Storage"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "Electron 网页/GPU 缓存，删除不影响账号与云端对话；目录名随版本差异，待本机核验。"
+    },
+    {
+      "app_name": "讯飞星火",
+      "app_alias": ["iFlytek Spark", "星火大模型", "讯飞星火桌面版"],
+      "category": "AI 应用",
+      "glob_patterns": [
+        "%APPDATA%\\iFLYTEK\\Spark\\Cache",
+        "%LOCALAPPDATA%\\iFLYTEK\\Spark\\Cache",
+        "%LOCALAPPDATA%\\XF_Tools\\Cache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\iFLYTEK\\Spark\\Local Storage"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "low",
+      "note": "Electron 网页/GPU 缓存，删除不影响账号与云端对话；目录名随版本差异，待本机核验。"
+    },
+    {
+      "app_name": "ChatGPT",
+      "app_alias": ["ChatGPT 桌面版", "OpenAI ChatGPT", "ChatGPT Desktop"],
+      "category": "AI 应用",
+      "glob_patterns": [
+        "%APPDATA%\\ChatGPT\\Cache",
+        "%APPDATA%\\ChatGPT\\Code Cache",
+        "%APPDATA%\\ChatGPT\\GPUCache",
+        "%APPDATA%\\ChatGPT\\CachedData"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\ChatGPT\\Local Storage"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "medium",
+      "note": "Electron 网页/GPU 缓存，自动重建；对话记录存云端，本地 Local Storage 已排除。"
+    },
+    {
+      "app_name": "通义灵码",
+      "app_alias": [".lingma", "TONGYI Lingma", "AI 代码智能体", "Lingma"],
+      "category": "AI 应用",
+      "glob_patterns": [
+        "%USERPROFILE%\\.lingma\\index",
+        "%USERPROFILE%\\.lingma\\cache",
+        "%USERPROFILE%\\.lingma\\vectorstore"
+      ],
+      "exclude_patterns": [
+        "%USERPROFILE%\\.lingma\\plugin"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "AI 代码索引/向量嵌入缓存，删除后重新打开工具需重建索引（可能耗时较久），不影响项目代码与账号。待本机核验。"
+    },
+    {
+      "app_name": "Ollama",
+      "app_alias": ["Ollama", "本地大模型", "Ollama AI"],
+      "category": "AI 应用",
+      "glob_patterns": [
+        "%USERPROFILE%\\.ollama\\models\\blobs"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "high",
+      "note": "本地大模型权重缓存，删除会丢失已下载模型，需重新 pull。"
+    },
+    {
+      "app_name": "Adobe 通用媒体缓存",
+      "app_alias": ["Adobe Media Cache", "Premiere 缓存", "After Effects 缓存", "Adobe Common"],
+      "category": "设计创作软件",
+      "glob_patterns": [
+        "%APPDATA%\\Adobe\\Common\\Media Cache Files",
+        "%APPDATA%\\Adobe\\Common\\Media Cache",
+        "%APPDATA%\\Adobe\\Common\\GPU Cache",
+        "%APPDATA%\\Adobe\\Common\\Plugins Cache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\Adobe\\Common\\Creative Cloud Libraries"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "high",
+      "note": "PR/AE/AME 的媒体缓存与波形/预览（.cfa/.pek）及 GPU 缓存，被删除后会按需重建；不影响工程文件与导出视频。"
+    },
+    {
+      "app_name": "Photoshop",
+      "app_alias": ["Adobe Photoshop", "PS", "Photoshop PC"],
+      "category": "设计创作软件",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Adobe\\Adobe Photoshop*\\*\\.pscache",
+        "%LOCALAPPDATA%\\Adobe\\Adobe Photoshop*\\*\\Temp"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\Adobe\\Adobe Photoshop*\\Presets",
+        "%APPDATA%\\Adobe\\Adobe Photoshop*\\Settings"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "草稿/历史状态/临时缓存，删除后无需重新生成（不影响原图与已保存工程）；预设与设置目录已排除。"
+    },
+    {
+      "app_name": "Premiere Pro",
+      "app_alias": ["Adobe Premiere Pro", "PR", "剪映替代剪辑软件", "Premiere PC"],
+      "category": "设计创作软件",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Adobe\\Premiere Pro\\*\\*Cache",
+        "%LOCALAPPDATA%\\Adobe\\Adobe Premiere Pro*\\Media Cache"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\Adobe\\Premiere Pro\\*\\Layouts"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "工程预览缓存（绿色进度片段），删除后重新渲染会慢，不影响 .prproj 工程与源素材。"
+    },
+    {
+      "app_name": "After Effects",
+      "app_alias": ["Adobe After Effects", "AE", "After Effects PC"],
+      "category": "设计创作软件",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Adobe\\After Effects\\*\\*Cache",
+        "%LOCALAPPDATA%\\Temp\\Adobe After Effects*"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\Adobe\\After Effects\\*\\Settings"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "磁盘缓存/预览帧缓存，删除后重新渲染会慢，不影响 .aep 工程与素材。"
+    },
+    {
+      "app_name": "Lightroom",
+      "app_alias": ["Adobe Lightroom", "LR", "Lightroom Classic"],
+      "category": "设计创作软件",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Adobe\\Lightroom\\*\\Cache",
+        "%LOCALAPPDATA%\\Adobe\\Lightroom\\*\\caches\\*.lrdata"
+      ],
+      "exclude_patterns": [
+        "%USERPROFILE%\\Pictures\\Lightroom"
+      ],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "相册智能预览/缩略图缓存（.lrdata），删除后需重新生成；不影响原始照片与目录数据库。"
+    },
+    {
+      "app_name": "Audition",
+      "app_alias": ["Adobe Audition", "AU", "Audition PC"],
+      "category": "设计创作软件",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\Adobe\\Audition\\*\\Cache",
+        "%LOCALAPPDATA%\\Adobe\\Audition\\*\\peaks"
+      ],
+      "exclude_patterns": [],
+      "risk_level": "caution",
+      "default_check": false,
+      "confidence": "medium",
+      "note": "波形峰值/预览缓存（删除后需重新计算波形），不影响工程与源音频。"
+    }
+  ]
+}

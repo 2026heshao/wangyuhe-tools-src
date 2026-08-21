@@ -1,0 +1,16 @@
+{
+  "main_py": "D:/桌面/python案例/PyPacker/main.py",
+  "project_root": "D:/桌面/python案例/PyPacker",
+  "requirements": "",
+  "venv_path": "",
+  "output_mode": "folder",
+  "console_mode": "gui",
+  "icon_path": "D:/桌面/python案例/PyPacker/PyPacker.ico",
+  "exe_name": "PyPacker",
+  "collect_enabled": false,
+  "collect_imports": "",
+  "exclude_enabled": false,
+  "exclude_imports": "",
+  "output_dir": "D:/桌面/python案例/PyPacker",
+  "debug_log": false
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "rules": [
+    {
+      "app_name": "示例软件",
+      "app_alias": ["ExampleApp", "示例"],
+      "category": "自定义",
+      "glob_patterns": [
+        "%LOCALAPPDATA%\\ExampleApp\\cache",
+        "%APPDATA%\\ExampleApp\\thumbnails"
+      ],
+      "exclude_patterns": [
+        "%APPDATA%\\ExampleApp\\config"
+      ],
+      "risk_level": "safe",
+      "default_check": true,
+      "confidence": "low",
+      "note": "示例规则：复制本文件改名为 user_rules.json，按需修改后保存即可被 rule_loader 自动加载生效。"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 构建产物
+dist/
+build/
+*.exe
+*.spec.bak
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+
+# 工作记忆（不应进仓库）
+.workbuddy/
