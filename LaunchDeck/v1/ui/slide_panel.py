@@ -32,15 +32,12 @@ from PyQt6.QtWidgets import (
     QWidget, QScrollArea, QLabel, QHBoxLayout, QFrame,
     QGraphicsDropShadowEffect,
 )
-from PyQt6.QtGui import (QPainter, QColor, QPen, QFont, QFontMetrics, QDrag,
-                         QCursor)
+from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QFontMetrics, QDrag
 
-import os
 import time
 
 from core.app_manager import extract_app_icon, render_app_icon
 from ui import anim_tokens as atk
-from ui import theme as ui_theme
 
 # 面板内拖拽排序使用的自定义 MIME 格式
 _DRAG_MIME = "application/x-launchdeck-index"
@@ -51,11 +48,9 @@ PANEL_H = 72          # 面板可见高度
 PANEL_RADIUS = 12     # 圆角
 SHADOW_MARGIN = 14    # 窗口四周为投影预留的透明边距
 ITEM_H = 56           # 单个应用项高度
-
-# 【v2.1】鱼眼参数（RocketDock 式悬停邻域放大）
-FISHEYE_AMP = 0.15        # 最大额外放大幅度（图标 36px → 41px）
-FISHEYE_RADIUS = 110.0    # 影响半径（像素）
-FISHEYE_LERP = 0.35       # 逐帧向目标值收敛的比例（30ms 定时器下即丝滑）
+HOVER_BG = QColor(52, 56, 66, 165)   # 悬停高亮 rgba(52,56,66,0.65)
+TEXT_MAIN = QColor(210, 212, 217)
+TEXT_DIM = QColor(138, 141, 150)
 
 
 # ====================================================================
@@ -87,16 +82,6 @@ class AppItem(QWidget):
         self._press_pos = QPoint()
         self._dragging = False
         self._suppress_click = False
-        # 【v2.1】运行指示 + 鱼眼放大
-        self._running = False
-        self._fisheye = 0.0
-        # 【v2.1.2】失效标记：指向的文件已不存在 → 图标减淡 + 右上角"!"角标
-        self._invalid = not os.path.exists(
-            (app.get("exe_path") or "").strip())
-        if self._invalid:
-            self.setToolTip(
-                f"{app.get('name', '')}\n{app.get('exe_path', '')}\n"
-                "⚠ 目标文件不存在，点击无法启动")
 
         self.setFixedSize(icon_size + 18, ITEM_H)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -139,51 +124,30 @@ class AppItem(QWidget):
             painter.scale(1.0 - 0.3 * self._launch_t, 1.0 - 0.3 * self._launch_t)
             painter.translate(-cx, -cy)
         t = self._hover_t
-        th = ui_theme.get()
 
-        # 【动效优化】悬停高亮层：alpha 随进度插值，非硬切（配色随主题）
+        # 【动效优化】悬停高亮层：alpha 随进度插值，非硬切
         if t > 0.001:
-            hr, hg, hb, ha = th["hover"]
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(hr, hg, hb, int(ha * t)))
+            painter.setBrush(QColor(52, 56, 66, int(165 * t)))
             painter.drawRoundedRect(1, 1, w - 2, h - 2, 8, 8)
 
-        # 图标（水平居中；hover 时上浮 + 微缩放）
-        # 【v2.1】叠加鱼眼放大。锚定方式（防剪裁关键）：
-        #   控件顶部余量只有 icon_y（约 1-3px），而下方标签区有十余px；
-        #   若按图标中心锚定，向上生长必被控件边界剪掉（实测"削头"bug）。
-        #   现改为：向上最多吃掉 icon_y 余量，其余全部向下生长
-        #   （标签在鱼眼时已淡出，不会压字）；总量再按 h 夹取，数学上保证不越界。
-        fisheye = self._fisheye
-        icon_y = 3.0 - 2.0 * t          # 基准顶部位置（上浮 0→-2px）
-        drawn = self._icon_size * (1.0 + 0.06 * t) * (1.0 + fisheye)
-        extra = max(0.0, drawn - self._icon_size)
-        up = min(extra, max(0.0, icon_y))       # 向上生长量（受头部余量封顶）
-        top = icon_y - up
-        if top + drawn > h:                      # 下方越界兜底（正常到不了）
-            drawn = max(float(self._icon_size), h - top)
-        # 水平居中（放大量左右均分，两侧各留 9px 足够）
-        ix = (w - self._icon_size) / 2.0 - extra / 2.0
+        # 图标（水平居中，顶部留 3px；hover 时上浮 + 微缩放）
+        # 用 painter.translate 承载浮点偏移，drawPixmap 用整数 QPoint，避免 QRectF 兼容问题
+        icon_y = 3 - 2.0 * t          # 上浮 0→-2px
+        ix = (w - self._icon_size) // 2
+        icon_scale = 1.0 + 0.06 * t   # 缩放 1.0→1.06
         painter.save()
-        if self._invalid:                    # 失效条目：图标减淡
-            painter.setOpacity(painter.opacity() * 0.5)
-        painter.translate(ix, top)
-        if abs(drawn - self._icon_size) > 1e-4:
-            k = drawn / self._icon_size
-            painter.scale(k, k)
+        painter.translate(ix, icon_y)
+        if icon_scale != 1.0:
+            cx = self._icon_size / 2.0
+            cy = self._icon_size / 2.0
+            painter.translate(cx, cy)
+            painter.scale(icon_scale, icon_scale)
+            painter.translate(-cx, -cy)
         painter.drawPixmap(QPoint(0, 0), self._icon)
         painter.restore()
 
-        # 【v2.1】运行中指示点：图标右下角小圆点（主题色，跟随放大后的图标）
-        if self._running:
-            dr, dg, db, da = th["dot"]
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(dr, dg, db, da))
-            painter.drawEllipse(QRectF(
-                ix + drawn - 7.0, top + drawn - 7.0, 6, 6))
-
         # 名称标签（图标下方，超出省略；亮度随 hover 插值）
-        # 【v2.1】鱼眼放大时标签淡出（避免大图标压住文字）
         label_y = icon_y + self._icon_size + 2
         label_h = int(h - label_y - 2)
         font = QFont("Segoe UI")
@@ -192,11 +156,8 @@ class AppItem(QWidget):
         name = self._app.get("name", "")
         fm = QFontMetrics(font)
         elided = fm.elidedText(name, Qt.TextElideMode.ElideRight, w - 8)
-        base_alpha = int(173 + (255 - 173) * t)
-        base_alpha = int(base_alpha * max(0.0, 1.0 - fisheye / FISHEYE_AMP))
-        col = QColor(th["text"])
-        col.setAlpha(max(0, base_alpha))
-        painter.setPen(QPen(col))
+        text_alpha = int(173 + (255 - 173) * t)
+        painter.setPen(QPen(QColor(210, 212, 217, text_alpha)))
         painter.save()
         painter.translate(0, label_y)
         painter.drawText(QRect(4, 0, w - 8, label_h),
@@ -205,28 +166,14 @@ class AppItem(QWidget):
         painter.restore()
         if launch_active:
             painter.restore()
-        # 【v2.1.2】失效角标：右上角琥珀色 "!"，提示目标文件已不存在
-        if self._invalid:
-            bx, by, bd = w - 15.0, 2.0, 12.0
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(226, 130, 32, 240))
-            painter.drawEllipse(QRectF(bx, by, bd, bd))
-            bfont = QFont("Segoe UI")
-            bfont.setPixelSize(9)
-            bfont.setBold(True)
-            painter.setFont(bfont)
-            painter.setPen(QPen(QColor(255, 255, 255)))
-            painter.drawText(QRectF(bx, by, bd, bd),
-                             Qt.AlignmentFlag.AlignCenter, "!")
         # 【新增·启动确认脉冲】单向波纹：点击后从图标处向外扩散一圈
         # 渐隐色环（仅扩散+淡出一次），作为"启动成功"的视觉确认。
         if self._ripple_t > 0.001:
             ripple_radius = 6.0 + self._ripple_t * (w * 0.42)
-            ar, ag, ab, aa = th["accent"]
-            ripple_alpha = int(aa * (1.0 - self._ripple_t))
+            ripple_alpha = int(150 * (1.0 - self._ripple_t))
             if ripple_alpha > 2:
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.setPen(QPen(QColor(ar, ag, ab, ripple_alpha), 3))
+                painter.setPen(QPen(QColor(76, 150, 255, ripple_alpha), 3))
                 painter.drawEllipse(
                     QRectF(w / 2.0 - ripple_radius, h / 2.0 - ripple_radius,
                            ripple_radius * 2, ripple_radius * 2))
@@ -236,21 +183,6 @@ class AppItem(QWidget):
         """【动效优化】悬停进度写入，触发重绘。"""
         self._hover_t = max(0.0, min(1.0, float(value)))
         self.update()
-
-    # ----【v2.1】运行指示 / 鱼眼 ----
-    def set_running(self, running: bool):
-        """设置运行中状态（图标右下角小圆点）。值不变时不重绘。"""
-        b = bool(running)
-        if b != self._running:
-            self._running = b
-            self.update()
-
-    def set_fisheye(self, value: float):
-        """设置鱼眼额外放大量（0 ~ FISHEYE_AMP），变化足够小则跳过重绘。"""
-        v = max(0.0, min(FISHEYE_AMP, float(value)))
-        if abs(v - self._fisheye) > 0.002:
-            self._fisheye = v
-            self.update()
 
     # ----【动效优化】stagger 入场 ----
     def play_enter(self, delay_ms: int):
@@ -372,6 +304,7 @@ class AppItem(QWidget):
             event.accept()
             return
         if event.button() == Qt.MouseButton.LeftButton:
+            print("[LD-DEBUG] AppItem.mouseReleaseEvent 触发, index=", self._index, flush=True)
             # 【新增·需求3】650ms 点击冷却：冷却期内直接丢弃，不发射启动；
             # 仅拦截点击动作，hover 高亮等其它鼠标事件不受影响。
             now = time.monotonic()
@@ -379,6 +312,9 @@ class AppItem(QWidget):
                 self._last_click = now
                 self.play_launch()   # 【动效优化】发射反馈动画
                 self.clicked.emit(self._index)
+                print("[LD-DEBUG] AppItem 已 emit clicked, index=", self._index, flush=True)
+            else:
+                print("[LD-DEBUG] AppItem 冷却中, 丢弃点击", flush=True)
         super().mouseReleaseEvent(event)
 
     def contextMenuEvent(self, event):
@@ -539,71 +475,11 @@ class SlidePanel(QWidget):
 
         self._empty_label = QLabel("暂无应用 · 右击浮球打开设置添加")
         self._empty_label.setStyleSheet(
-            f"color:{ui_theme.get()['text_dim']};"
-            "font-size:12px;background:transparent;")
+            "color:#8A8D96;font-size:12px;background:transparent;")
         self._empty_label.adjustSize()
 
         self._app_items = []   # 【动效优化】持有 AppItem 引用，供 stagger 入场
         self._apply_surface_style()
-
-        # ----【v2.1】鱼眼放大驱动 + 运行指示 ----
-        self._fisheye_enabled = True
-        self._running_indices = set()       # 正在运行的应用下标集合
-        self._fisheye_timer = QTimer(self)
-        self._fisheye_timer.setInterval(33)     # ~30fps，够丝滑且开销极低
-        self._fisheye_timer.timeout.connect(self._update_fisheye)
-
-    # ---------------- 主题 / 鱼眼 / 运行指示（v2.1） ----------------
-    def set_theme(self, name: str):
-        """切换面板配色主题（暗色/暖色/冰蓝），立即刷新。"""
-        ui_theme.set_current(name)
-        self._apply_surface_style()
-        self._empty_label.setStyleSheet(
-            f"color:{ui_theme.get()['text_dim']};"
-            "font-size:12px;background:transparent;")
-        self._empty_label.adjustSize()
-        for item in self._app_items:
-            item.update()
-
-    def set_fisheye_enabled(self, enabled: bool):
-        """开关鱼眼放大；关闭时把所有项归零。"""
-        self._fisheye_enabled = bool(enabled)
-        if not self._fisheye_enabled:
-            for item in self._app_items:
-                item.set_fisheye(0.0)
-
-    def update_running(self, indices: set):
-        """更新运行中指示（传入正在运行的应用下标集合）。"""
-        self._running_indices = set(indices or ())
-        for item in self._app_items:
-            item.set_running(item._index in self._running_indices)
-
-    def _update_fisheye(self):
-        """以鼠标全局位置为圆心，驱动邻域图标放大（逐帧收敛，RocketDock 式）。"""
-        if not self._fisheye_enabled:
-            return
-        gp = QCursor.pos()
-        for item in self._app_items:
-            top_left = item.mapToGlobal(QPoint(0, 0))
-            # 光标不在面板纵向范围内 → 直接归零
-            if not (top_left.y() - 60 <= gp.y() <= top_left.y() + ITEM_H + 60):
-                item.set_fisheye(0.0)
-                continue
-            center_x = top_left.x() + item.width() // 2
-            dist = abs(gp.x() - center_x)
-            target = FISHEYE_AMP * max(0.0, 1.0 - dist / FISHEYE_RADIUS)
-            cur = item._fisheye
-            item.set_fisheye(cur + (target - cur) * FISHEYE_LERP)
-
-    def showEvent(self, event):
-        self._fisheye_timer.start()
-        super().showEvent(event)
-
-    def hideEvent(self, event):
-        self._fisheye_timer.stop()
-        for item in self._app_items:
-            item.set_fisheye(0.0)
-        super().hideEvent(event)
 
     # ---------------- 数据 ----------------
     def set_apps(self, apps: list, icon_size: int):
@@ -620,7 +496,6 @@ class SlidePanel(QWidget):
 
         for i, app in enumerate(apps):
             widget = AppItem(app, i, icon_size)
-            widget.set_running(i in self._running_indices)
             widget.clicked.connect(self.launch_requested.emit)
             widget.drag_started.connect(
                 lambda: setattr(self, "_drag_active", True))
@@ -650,15 +525,12 @@ class SlidePanel(QWidget):
         """
         半透明背景由 _surface 的 QSS 承载（顶层窗口保持完全透明，
         四周边距区域直透桌面，无任何系统级染色）。
-        【v2.1】底色/边框随主题。
         """
-        sr, sg, sb = ui_theme.get()["surface"]
-        border_a = ui_theme.get()["border_a"]
         self._surface.setStyleSheet(
-            f"QWidget#slideSurface{{background:rgba({sr},{sg},{sb},"
+            f"QWidget#slideSurface{{background:rgba(16,17,21,"
             f"{int(255 * self._opacity)});"
             f"border-radius:{PANEL_RADIUS}px;"
-            f"border:1px solid rgba(255,255,255,{border_a});}}"
+            f"border:1px solid rgba(255,255,255,0.09);}}"
         )
 
     # ---------------- 拖放辅助 ----------------

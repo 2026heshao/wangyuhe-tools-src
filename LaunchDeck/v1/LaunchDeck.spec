@@ -1,19 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-import os
-
-# spec 所在目录（= v2/）。改用 SPECPATH 而非写死绝对路径：
-# 旧版 spec 写死 D:\桌面\python案例\LaunchDeck\...，目录一迁移就整体失效、无法打包。
-HERE = SPECPATH
-ICON = os.path.join(HERE, '111.ico')
 
 
 a = Analysis(
-    [os.path.join(HERE, 'main.py')],
-    pathex=[HERE],
+    ['D:/桌面/python案例/LaunchDeck/main.py'],
+    pathex=['D:/桌面/python案例/LaunchDeck'],
     binaries=[],
-    # 111.ico 必须随包分发：ui/tray_icon.py 运行时按 __file__ 上溯两级读取它，
-    # 打包后即 <_MEIPASS>/111.ico；缺失则托盘图标回退为 Qt 内置图标。
-    datas=[(ICON, '.')],
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -40,7 +32,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=[ICON],
+    icon=['D:\\桌面\\python案例\\LaunchDeck\\111.ico'],
 )
 coll = COLLECT(
     exe,

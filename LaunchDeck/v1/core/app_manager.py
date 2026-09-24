@@ -15,13 +15,11 @@ LaunchDeck 核心  -  app_manager
 import os
 import sys
 import json
-import time
 import ctypes
-import hashlib
 import subprocess
 
-from PyQt6.QtCore import Qt, QSize, QFileInfo, QRectF
-from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QFont, QPainterPath
+from PyQt6.QtCore import Qt, QSize, QFileInfo
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QFont
 from PyQt6.QtWidgets import QFileIconProvider, QMessageBox
 
 
@@ -96,26 +94,16 @@ def _is_writable(directory: str) -> bool:
 DATA_DIR = _resolve_data_dir()
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 
-# 【v2】图标磁盘缓存目录：提取好的基准图标落盘 PNG，重启后面板秒载
-ICON_CACHE_DIR = os.path.join(DATA_DIR, "icon_cache")
-
 # 旧版配置路径（打包前项目根，或旧 exe 目录），用于首次迁移
 LEGACY_CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
 # 设置项默认值
 DEFAULT_SETTINGS = {
     "icon_size":     40,     # 面板图标边长（32-42）
-    "ball_size":     42,     # 【v2.1.3】悬浮球直径（28-72px）
     "panel_opacity": 0.87,   # 面板背景不透明度（0.50-1.00）
     "anim_speed":    1.0,    # 动画速度倍率（0.5-2.0，越大越快）
     "enable_idle_pulse": True,   # 【新增·需求1】闲置呼吸动画开关
     "show_glow":          True,  # 【新增】悬浮球光影开关（三层辉光）
-    "toggle_hotkey": "Alt+Space",  # 【v2】全局显示/隐藏悬浮球快捷键
-    "smart_sort":    False,  # 【v2.1】使用频率智能排序开关（常用的排前面）
-    "hover_fisheye": True,   # 【v2.1】面板图标悬停鱼眼放大（RocketDock 式）
-    "theme":         "dark", # 【v2.1】面板配色主题（dark/warm/ice）
-    "hidden_tip_shown": False,  # 【v2.1】首次隐藏引导气泡是否已展示过
-    "ball_image":    "",    # 【v2.2】悬浮球自定义贴图路径（DATA_DIR 内拷贝；"" = 矢量球）
     "ball_x":        None,   # 浮球窗口位置（None = 左缘垂直居中）
     "ball_y":        None,
 }
@@ -249,54 +237,6 @@ class AppManager:
         """更新单个设置项并立即持久化。"""
         self._data["settings"][key] = value
         self.save()
-
-    # ---------------- 【v2.1】使用频率统计与智能排序 ----------------
-    def record_launch(self, index: int):
-        """
-        记录第 index 个应用的启动次数与最近启动时间，并持久化。
-
-        无论 smart_sort 开关与否都记录（开销仅一个 json 字段），
-        这样用户中途开启智能排序时也有历史数据可用。
-        """
-        apps = self._data["apps"]
-        if not (0 <= index < len(apps)):
-            return
-        app = apps[index]
-        try:
-            app["launch_count"] = int(app.get("launch_count", 0) or 0) + 1
-        except (TypeError, ValueError):
-            app["launch_count"] = 1
-        app["last_launch"] = time.time()
-        self.save()
-
-    def resort_by_usage(self) -> bool:
-        """
-        按「启动次数降序 → 最近启动时间降序」稳定重排 apps 列表。
-
-        返回是否发生了顺序变化（未变化则不写盘）。
-        排序直接作用于真实列表，保证面板显示顺序 / 拖拽排序 /
-        右键菜单索引三者始终一致。
-        """
-        apps = self._data["apps"]
-
-        def _key(i: int):
-            a = apps[i]
-            try:
-                c = -int(a.get("launch_count", 0) or 0)
-            except (TypeError, ValueError):
-                c = 0
-            try:
-                t = -float(a.get("last_launch", 0) or 0)
-            except (TypeError, ValueError):
-                t = 0.0
-            return (c, t, i)        # 末位 i 保证同频次内稳定（不乱跳）
-
-        order = sorted(range(len(apps)), key=_key)
-        if order == list(range(len(apps))):
-            return False
-        self._data["apps"] = [apps[i] for i in order]
-        self.save()
-        return True
 
 
 # ====================================================================
@@ -457,17 +397,7 @@ def _placeholder_icon(size: int, name_hint: str = "") -> QPixmap:
 
 
 def _render_to_size(base: QPixmap, size: int) -> QPixmap:
-    """【v2·防御性重构】把基准 QPixmap 渲染为**恰好 size×size 逻辑像素**。
-
-    修复"拖入 exe 后图标变小"的渲染层根因：
-      1. Qt 的 QIcon.pixmap() 返回值可能自带隐式 DPR 标签（实测本机返回
-         DPR=2.0 的位图），旧实现直接在带标签位图上 scaled()，行为依赖
-         Qt 隐式语义、平台相关 → 先归一化 base DPR=1.0，全程按物理像素
-         处理，确定性可控。
-      2. KeepAspectRatio 对非方形图标会得到非方形结果（drawPixmap 不
-         缩放，图标画不满槽位显小）→ 缩放结果强制居中贴到 size×size
-         透明方形画布，任何来源的图标都精确占满槽位。
-    """
+    """把基准 QPixmap 平滑缩放到目标尺寸（按 DPR 实际像素，杜绝放大发糊）。"""
     if base.isNull() or size <= 0:
         return base
     try:
@@ -479,107 +409,22 @@ def _render_to_size(base: QPixmap, size: int) -> QPixmap:
     except Exception:
         dpr = 1.0
     target = max(1, int(size * dpr))
-
-    work = QPixmap(base)
-    work.setDevicePixelRatio(1.0)          # 归一化：物理像素语义
-    fitted = work.scaled(
+    scaled = base.scaled(
         target, target,
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
-    if fitted.width() == target and fitted.height() == target:
-        fitted.setDevicePixelRatio(dpr)
-        return fitted
-
-    # 非方形 → 居中贴到方形透明画布
-    canvas = QPixmap(target, target)
-    canvas.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(canvas)
-    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-    painter.drawPixmap((target - fitted.width()) // 2,
-                       (target - fitted.height()) // 2, fitted)
-    painter.end()
-    canvas.setDevicePixelRatio(dpr)
-    return canvas
-
-
-def _disk_cache_path(src: str) -> str:
-    """【v2】图标磁盘缓存文件路径：键 = 来源路径 + 文件 mtime。
-
-    mtime 参与哈希 → 文件被替换后旧缓存自动失效，无需清理逻辑。
-    """
-    try:
-        mtime = int(os.path.getmtime(src)) if os.path.exists(src) else 0
-    except OSError:
-        mtime = 0
-    key = hashlib.md5(f"{os.path.normcase(os.path.abspath(src))}|{mtime}"
-                      .encode("utf-8", "ignore")).hexdigest()
-    return os.path.join(ICON_CACHE_DIR, f"{key}.png")
-
-
-def _disk_cache_load(src: str) -> QPixmap:
-    """【v2】从磁盘缓存读基准图标；未命中返回 null QPixmap。"""
-    try:
-        path = _disk_cache_path(src)
-        if os.path.exists(path):
-            pm = QPixmap(path)
-            if not pm.isNull():
-                pm.setDevicePixelRatio(1.0)    # 统一物理像素语义
-                return pm
-    except Exception:
-        pass
-    return QPixmap()
-
-
-def _disk_cache_save(src: str, base: QPixmap) -> bool:
-    """【v2】基准图标落盘 PNG。质量门槛：物理尺寸 ≥64px 才缓存，
-    防止拖放瞬间 Shell 提取出的坏/小图标被永久固化。"""
-    try:
-        if base.isNull() or base.width() < 64 or base.height() < 64:
-            return False
-        os.makedirs(ICON_CACHE_DIR, exist_ok=True)
-        return base.save(_disk_cache_path(src), "PNG")
-    except Exception:
-        return False
-
-
-def cleanup_icon_cache_disk(active_sources) -> int:
-    """
-    【v2.2.3】启动时清理磁盘图标缓存的孤儿项。
-
-    缓存文件名 = md5(来源路径|mtime)（见 _disk_cache_path），来源文件
-    被移除/替换后旧 PNG 不再被任何键命中，只占磁盘。按「当前配置仍
-    引用的来源」重算期望文件名集合，集合之外的 .png 一律删除。
-    返回删除数；任何失败静默容错，绝不影响启动。
-    """
-    try:
-        if not os.path.isdir(ICON_CACHE_DIR):
-            return 0
-        keep = set()
-        for src in {s for s in (active_sources or []) if s}:
-            keep.add(os.path.basename(_disk_cache_path(src)))
-        removed = 0
-        for name in os.listdir(ICON_CACHE_DIR):
-            if not name.lower().endswith(".png") or name in keep:
-                continue
-            try:
-                os.remove(os.path.join(ICON_CACHE_DIR, name))
-                removed += 1
-            except OSError:
-                pass
-        return removed
-    except Exception:
-        return 0
+    scaled.setDevicePixelRatio(dpr)
+    return scaled
 
 
 def extract_app_icon(exe_path: str, size: int, name_hint: str = "") -> QPixmap:
     """
     从 exe 提取系统图标，结果以「来源」为键缓存基准高分辨率位图。
 
-    【v2】三级来源：内存 LRU → 磁盘 PNG 缓存（重启后面板秒载）→ 实时
-    提取（成功且尺寸达标后回写磁盘）。基准图 DPR 一律归一化 1.0，
-    显示时由 _render_to_size 确定性地缩放到请求尺寸。
-    - 提取失败 / 路径无效 → 字母占位图标（占位图不落盘）
+    显示时由 _render_to_size 平滑缩放到请求尺寸，故同一 exe 无论以何种
+    size 调用都只缓存一份基准图，跨 DPR 不再产生冗余键。
+    - 提取失败 / 路径无效 → 字母占位图标（同样按来源缓存基准图）
     """
     src = exe_path or ""
     ph_key = (name_hint or os.path.basename(src or "") or "?")
@@ -588,20 +433,14 @@ def extract_app_icon(exe_path: str, size: int, name_hint: str = "") -> QPixmap:
     if base is None:
         base = QPixmap()
         if src and os.path.exists(src):
-            # 1) 磁盘缓存
-            base = _disk_cache_load(src)
-            # 2) 实时提取
-            if base.isNull():
-                try:
-                    provider = QFileIconProvider()
-                    icon = provider.icon(QFileInfo(src))
-                    big = icon.pixmap(QSize(_ICON_BASE, _ICON_BASE))
-                    if not big.isNull():
-                        base = big
-                        base.setDevicePixelRatio(1.0)   # 去掉 Qt 隐式 DPR 标签
-                        _disk_cache_save(src, base)     # 达标才落盘
-                except Exception:
-                    base = QPixmap()
+            try:
+                provider = QFileIconProvider()
+                icon = provider.icon(QFileInfo(src))
+                big = icon.pixmap(QSize(_ICON_BASE, _ICON_BASE))
+                if not big.isNull():
+                    base = big
+            except Exception:
+                base = QPixmap()
         if base.isNull():
             # 占位图标也按基准尺寸生成后缓存，避免每次重建
             base = _placeholder_icon(_ICON_BASE, ph_key)
@@ -674,86 +513,6 @@ def render_app_icon(app: dict, size: int) -> "QPixmap":
 def clear_icon_cache():
     """清空图标缓存（配置变更后重建面板前调用）。"""
     _icon_cache.clear()
-
-
-# ====================================================================
-# 【v2.2】悬浮球自定义贴图：安装（拷贝到数据目录）+ 圆形裁剪渲染
-# ====================================================================
-
-def install_ball_image(src_path: str) -> str:
-    """
-    校验并把所选图片拷贝到 DATA_DIR/ball_image<原扩展名>（覆盖旧拷贝）。
-
-    配置里只存拷贝后路径 → 用户原文件被移动/删除不影响悬浮球显示。
-    - 校验：优先 Pillow（不依赖 GUI 上下文），不可用时回退 QPixmap 试加载
-    - 拷贝失败 / 图片非法 → 返回 ""（调用方提示，配置不变）
-    """
-    src = (src_path or "").strip()
-    if not src or not os.path.exists(src):
-        return ""
-
-    ok = False
-    try:                                  # 首选 Pillow 校验（环境已内置）
-        from PIL import Image
-        with Image.open(src) as im:
-            im.verify()                   # 只验结构合法性，不解码全图
-        ok = True
-    except Exception:
-        ok = False
-    if not ok:                            # 无 Pillow / 校验失败 → Qt 兜底
-        try:
-            pm = QPixmap(src)
-            ok = not pm.isNull()
-        except Exception:
-            ok = False
-    if not ok:
-        return ""
-
-    ext = os.path.splitext(src)[1].lower() or ".png"
-    dst = os.path.join(DATA_DIR, f"ball_image{ext}")
-    try:
-        import shutil
-        os.makedirs(DATA_DIR, exist_ok=True)
-        shutil.copyfile(src, dst)
-    except OSError:
-        return ""
-    return dst
-
-
-def circular_cover_pixmap(src: QPixmap, size: int) -> QPixmap:
-    """
-    把任意比例位图居中裁成圆形贴图（cover 模式：短边撑满、长边居中裁掉）。
-
-    - 输入 src 一律按物理像素语义处理（DPR 标签归一化 1.0）
-    - 输出 size×size 物理像素，圆形外完全透明，边缘经抗锯齿裁剪平滑
-    - 渲染全程用 QPainter/Qt 完成，不依赖 Pillow
-    - src 为空或 size 非法 → 返回 null QPixmap（调用方回退矢量分支）
-    """
-    if src.isNull() or size <= 0:
-        return QPixmap()
-    work = QPixmap(src)
-    work.setDevicePixelRatio(1.0)
-    w, h = work.width(), work.height()
-    scale = max(size / w, size / h)
-    tw = max(1, round(w * scale))
-    th = max(1, round(h * scale))
-    scaled = work.scaled(
-        tw, th,
-        Qt.AspectRatioMode.IgnoreAspectRatio,   # cover：按计算好的尺寸直接缩放
-        Qt.TransformationMode.SmoothTransformation,
-    )
-
-    canvas = QPixmap(size, size)
-    canvas.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(canvas)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-    clip = QPainterPath()
-    clip.addEllipse(QRectF(0.0, 0.0, float(size), float(size)))
-    painter.setClipPath(clip)             # 抗锯齿圆形裁剪
-    painter.drawPixmap((size - tw) // 2, (size - th) // 2, scaled)
-    painter.end()
-    return canvas
 
 
 # ====================================================================
@@ -833,57 +592,56 @@ def set_autostart(enabled: bool):
 
 def launch_app(exe_path: str, name: str, parent=None) -> bool:
     """
-    异步启动外部条目（ShellExecuteW，等价于资源管理器双击）。
+    异步启动外部 exe（Popen 不等待，不阻塞事件循环）。
 
-    支持类型与双击一致：exe / lnk 快捷方式 / 文档（pdf 等）/ 文件夹 / URL；
-    需要管理员权限的 exe 会自动弹 UAC，无需单独提权路径。
-    返回值 >32 成功，≤32 为 SE_ERR_* 错误码。
+    Windows 错误 740（需要管理员权限）→ ShellExecuteW "runas" 提权重试，
+    其余失败弹中文提示。
+
+    【修复·打包崩溃】打包环境下 close_fds=True 会强制关闭子进程继承的
+    句柄，导致父进程崩溃；改用 CREATE_NO_WINDOW + 重定向 std 句柄到
+    DEVNULL，安全隔离子进程。
     """
     exe_path = (exe_path or "").strip()
+    print("[LD-DEBUG] launch_app 调用: name=", name, "exe_path=", exe_path, flush=True)
     if not exe_path:
-        QMessageBox.warning(parent, "启动失败", f"「{name}」的路径为空。")
+        QMessageBox.warning(parent, "启动失败", f"「{name}」的可执行文件路径为空。")
         return False
     if not os.path.exists(exe_path):
+        print("[LD-DEBUG] launch_app 路径不存在: ", exe_path, flush=True)
         QMessageBox.warning(
             parent, "启动失败",
-            f"找不到「{name}」的文件：\n{exe_path}\n\n"
+            f"找不到「{name}」的可执行文件：\n{exe_path}\n\n"
             "文件可能已被移动或删除，请在设置中修正路径。",
         )
         return False
 
     try:
-        # SW_SHOWNORMAL=1；"open" 动词 = 双击语义，系统按文件类型选择打开方式
-        ret = ctypes.windll.shell32.ShellExecuteW(
-            None, "open", exe_path, None, None, 1,
+        # 【修复·打包崩溃】去掉 close_fds=True（PyInstaller + Windows 下
+        # 强制关闭继承句柄会导致父进程崩溃）；改用 DEVNULL 重定向标准句柄
+        # 隔离子进程，不影响 GUI 窗口正常显示。
+        p = subprocess.Popen(
+            [exe_path],
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
-        if ret > 32:
-            return True
-        msg = _shellexec_error_text(ret, name)
-        QMessageBox.warning(parent, "启动失败", msg)
+        print("[LD-DEBUG] launch_app Popen 成功, pid=", p.pid, flush=True)
+        return True
+    except FileNotFoundError:
+        QMessageBox.warning(parent, "启动失败",
+                            f"找不到「{name}」的可执行文件。\n路径：{exe_path}")
+        return False
+    except OSError as e:
+        if getattr(e, "winerror", None) == 740:
+            return _launch_elevated(exe_path, name, parent)
+        QMessageBox.critical(parent, "启动异常",
+                             f"启动「{name}」时发生异常：\n{str(e)}")
         return False
     except Exception as e:
         QMessageBox.critical(parent, "启动异常",
                              f"启动「{name}」时发生异常：\n{str(e)}")
         return False
-
-
-def _shellexec_error_text(ret: int, name: str) -> str:
-    """ShellExecuteW 错误码 → 中文提示（覆盖常见 SE_ERR_*）。"""
-    reasons = {
-        0:  "内存不足，系统无法完成启动。",
-        2:  "找不到文件，可能已被移动或删除。",
-        3:  "找不到路径，目录可能已被移动或删除。",
-        5:  "拒绝访问（可能需要管理员权限）。",
-        8:  "内存不足。",
-        26: "共享冲突，文件正被占用。",
-        27: "文件关联信息不完整或无效。",
-        29: "DDE 通信超时，目标程序未响应。",
-        30: "DDE 通信失败。",
-        31: "Windows 没有能打开该文件类型的应用。",
-        32: "目标程序正忙，请稍后重试。",
-    }
-    reason = reasons.get(ret, f"系统返回错误码 {ret}。")
-    return f"启动「{name}」失败：{reason}"
 
 
 def _launch_elevated(exe_path: str, name: str, parent=None) -> bool:

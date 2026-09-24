@@ -1,0 +1,38 @@
+{
+  "apps": [
+    {
+      "name": "Geek Uninstaller",
+      "exe_path": "D:/Geek Uninstaller/geek/geek.exe"
+    },
+    {
+      "name": "CacheClear",
+      "exe_path": "D:/桌面/python案例/CacheClear/dist/CacheClear/CacheClear.exe"
+    },
+    {
+      "name": "豆包",
+      "exe_path": "D:/A工作箱/豆包/Doubao/Doubao.exe"
+    },
+    {
+      "name": "PyPacker",
+      "exe_path": "D:/桌面/python案例/PyPacker/dist/PyPacker/PyPacker.exe"
+    },
+    {
+      "name": "DeepSeek Harness Desktop",
+      "exe_path": "D:/Deepseek Harness/DeepSeek Harness Desktop/DeepSeek Harness Desktop.exe"
+    },
+    {
+      "name": "FloatPulse",
+      "exe_path": "D:/桌面/python案例/FloatPulse/dist/FloatPulse/FloatPulse.exe"
+    }
+  ],
+  "settings": {
+    "icon_size": 36,
+    "panel_opacity": 0.86,
+    "anim_speed": 2.0,
+    "enable_idle_pulse": true,
+    "show_glow": true,
+    "ball_x": 1469,
+    "ball_y": 474,
+    "panel_pinned": false
+  }
+}

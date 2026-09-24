@@ -16,30 +16,26 @@ v4 方案规格：
 ====================================================================
 """
 
-import os
-
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QPoint, QRectF
-from PyQt6.QtGui import (
-    QColor, QFont, QFontMetrics, QKeySequence, QPixmap, QPainter,
-)
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QPoint
+from PyQt6.QtGui import QColor, QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QLabel, QPushButton, QToolButton, QSlider,
     QListWidget, QListWidgetItem, QLineEdit, QFileDialog, QFrame,
     QVBoxLayout, QHBoxLayout, QGraphicsDropShadowEffect,
     QSizePolicy, QCheckBox, QStyleFactory, QMessageBox,
-    QKeySequenceEdit, QMenu,
 )
 
 from core.app_manager import (
     AppManager, get_exe_name, extract_app_icon, render_app_icon, clear_icon_cache,
     is_autostart_enabled, set_autostart,        # 【新增·需求2】
-    install_ball_image, circular_cover_pixmap,  # 【v2.2】悬浮球自定义贴图
 )
 from ui import anim_tokens as atk
-from ui import theme as ui_theme
-from ui.theme import TEXT_MAIN, TEXT_DIM, ACCENT, ACCENT_HOVER  # 【v2.2.3】常量归一
 
-# 深色主题常量已收敛至 ui/theme.py（v2.2.3），此处仅保留 import
+# 深色主题常量
+TEXT_MAIN = "#D2D4D9"
+TEXT_DIM = "#8A8D96"
+ACCENT = "#4C96FF"
+ACCENT_HOVER = "#67A5FF"
 
 # 模块级持有 Fusion 样式实例（setStyle 不转移所有权，
 # 必须保持引用防止 Python 侧回收导致退出时崩溃）
@@ -112,80 +108,6 @@ QPushButton#closeX {{
 }}
 QPushButton#closeX:hover {{ background: rgba(255,255,255,0.08); color: {TEXT_MAIN}; }}
 """
-
-# ====================================================================
-# 【v2.2.2】深色右键菜单：与设置窗同一套视觉令牌
-# （应用项菜单 / 悬浮球菜单 / 托盘菜单三处共用，杜绝风格割裂）
-# ====================================================================
-
-MENU_QSS = f"""
-QMenu {{
-    background: rgba(20,21,26,0.95);
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 10px; padding: 6px;
-}}
-QMenu::item {{
-    color: {TEXT_MAIN}; font-size: 13px;
-    padding: 7px 24px 7px 14px; border-radius: 6px;
-    background: transparent;
-}}
-QMenu::item:selected {{ background: rgba(76,150,255,0.16); }}
-QMenu::item:pressed {{ background: rgba(76,150,255,0.30); color: #FFFFFF; }}
-QMenu::item:disabled {{ color: rgba(210,212,217,0.35); }}
-QMenu::separator {{
-    height: 1px; background: rgba(255,255,255,0.07);
-    margin: 4px 8px; border: none;
-}}
-QMenu::icon {{ padding-left: 6px; }}
-"""
-
-
-def make_styled_menu(parent=None) -> QMenu:
-    """构建与设置窗风格一致的深色菜单：透底圆角。
-
-    Windows 上的两步必须同时做，缺一圆角就变黑角：
-    1. NoDropShadowWindowHint + FramelessWindowHint：关掉 Qt 默认给弹出菜单
-       挂的 DWM 原生阴影——该阴影强制窗口按矩形不透明合成，压住透底
-    2. WA_TranslucentBackground：允许逐像素透明，QSS 圆角外露出真实背景
-    （投影效果不能挂 QMenu 本身：顶级弹窗上会再次破坏透明，已实测）
-    所有右键菜单统一走这里，保证与设置窗观感一致。
-    """
-    menu = QMenu(parent)
-    menu.setWindowFlags(menu.windowFlags()
-                        | Qt.WindowType.FramelessWindowHint
-                        | Qt.WindowType.NoDropShadowWindowHint)
-    menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-    menu.setStyleSheet(MENU_QSS)
-    return menu
-
-
-def _default_ball_pixmap(size: int, dpr: float = 1.0) -> QPixmap:
-    """【v2.2】默认悬浮球预览图：深色圆底 + 2×2 四方块（与矢量球观感一致）。
-
-    仅用于设置窗预览；悬浮球本体无贴图时仍走 BallVisual 矢量绘制。
-    """
-    t = max(1, int(round(size * dpr)))
-    pm = QPixmap(t, t)
-    pm.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pm)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    th = ui_theme.get()
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(*th["ball_bg"]))
-    painter.drawEllipse(QRectF(0.0, 0.0, float(t), float(t)))
-    total = t * 0.46
-    gap = max(2.0, t * 0.05)
-    cell = (total - gap) / 2.0
-    radius = max(2.0, cell * 0.28)
-    o = (t - total) / 2.0
-    painter.setBrush(QColor(*th["ball_icon"]))
-    for dx in (0.0, cell + gap):
-        for dy in (0.0, cell + gap):
-            painter.drawRoundedRect(QRectF(o + dx, o + dy, cell, cell),
-                                    radius, radius)
-    painter.end()
-    pm.setDevicePixelRatio(dpr)
-    return pm
 
 
 class _TitleBar(QWidget):
@@ -378,9 +300,7 @@ class SettingsDialog(_FramelessShell):
 
     def __init__(self, manager: AppManager, parent=None):
         self._mgr = manager
-        # 【v2.2】高度 320 → 376：容纳新增「悬浮球外观」预览行
-        # 【v2.2.1】高度 376 → 412：容纳悬浮球规范说明（两行 dim 文字）
-        super().__init__(460, 412, "LaunchDeck 设置", parent)
+        super().__init__(460, 320, "LaunchDeck 设置", parent)
 
     def _build_body(self):
         root = QVBoxLayout(self._body)
@@ -453,101 +373,16 @@ class SettingsDialog(_FramelessShell):
         self._breath_glow_cb.toggled.connect(self._on_breath_glow_toggled)
         checks.addWidget(self._breath_glow_cb)
 
-        # 【v2.1】鱼眼放大开关
-        self._fisheye_cb = QCheckBox("图标鱼眼放大")
-        self._fisheye_cb.setChecked(
-            bool(self._mgr.settings.get("hover_fisheye", True)))
-        self._fisheye_cb.setToolTip(
-            "鼠标在面板上移动时，附近的图标随之放大（RocketDock 式效果）")
-        self._fisheye_cb.toggled.connect(self._on_fisheye_toggled)
-        checks.addWidget(self._fisheye_cb)
-
         # 【新增·需求2】开机自启开关（初始状态实时读注册表，不存 json）
         self._auto_cb = QCheckBox("开机自动启动")
         self._auto_cb.setChecked(is_autostart_enabled())
         self._auto_cb.toggled.connect(self._on_autostart_toggled)
         root.addWidget(self._auto_cb)
 
-        # ----【v2.1】使用频率智能排序开关 ----
-        self._smart_cb = QCheckBox("使用频率智能排序（启动越多的应用排越靠前）")
-        self._smart_cb.setChecked(bool(self._mgr.settings.get("smart_sort", False)))
-        self._smart_cb.setToolTip(
-            "开启后：面板顺序按「启动次数 → 最近启动时间」自动排列，\n"
-            "手动拖拽排序会被覆盖；关闭后恢复手动顺序。")
-        self._smart_cb.toggled.connect(self._on_smart_toggled)
-        root.addWidget(self._smart_cb)
-
-        # ----【v2.1】面板配色主题（暗色/暖色/冰蓝 三选一） ----
-        theme_row = QHBoxLayout()
-        theme_row.setSpacing(8)
-        theme_label = QLabel("面板配色")
-        theme_label.setObjectName("dim")
-        theme_row.addWidget(theme_label)
-        theme_row.addStretch()
-        cur_theme = str(self._mgr.settings.get("theme", "dark") or "dark")
-        self._theme_btns = {}
-        for key in ("dark", "warm", "ice"):
-            btn = QPushButton(ui_theme.THEMES[key]["label"])
-            btn.setCheckable(True)
-            btn.setFixedSize(64, 26)
-            btn.setChecked(key == cur_theme)
-            btn.clicked.connect(
-                lambda checked, k=key: self._on_theme_clicked(k))
-            theme_row.addWidget(btn)
-            self._theme_btns[key] = btn
-        root.addLayout(theme_row)
-
-        # ----【v2.2】悬浮球外观：圆形预览 + 自定义图片 / 恢复默认 ----
-        ball_row = QHBoxLayout()
-        ball_row.setSpacing(8)
-        ball_label = QLabel("悬浮球外观")
-        ball_label.setObjectName("dim")
-        ball_row.addWidget(ball_label)
-        self._ball_preview = QLabel()
-        self._ball_preview.setFixedSize(48, 48)
-        ball_row.addWidget(self._ball_preview)
-        self._btn_ball_img = QPushButton("自定义图片…")
-        self._btn_ball_img.setObjectName("ghost")
-        self._btn_ball_img.setToolTip(
-            "选择一张图片替换悬浮球默认外观（任意比例，自动居中裁成圆形）")
-        self._btn_ball_img.clicked.connect(self._on_pick_ball_image)
-        ball_row.addWidget(self._btn_ball_img)
-        self._btn_ball_reset = QPushButton("恢复默认")
-        self._btn_ball_reset.setObjectName("ghost")
-        self._btn_ball_reset.setToolTip("清除自定义图片，恢复矢量绘制默认球")
-        self._btn_ball_reset.clicked.connect(self._on_reset_ball_image)
-        ball_row.addWidget(self._btn_ball_reset)
-        ball_row.addStretch()
-        root.addLayout(ball_row)
-
-        # 【v2.2.1】悬浮球贴图规范说明：紧贴设置项下方，dim 两行
-        ball_hint = QLabel(
-            "支持 png / jpg / bmp / webp，任意尺寸比例，自动居中裁成圆形\n"
-            "建议方形图 ≥256×256（图太小放大发糊）；选图后自动备份，原文件可删除")
-        ball_hint.setObjectName("dim")
-        root.addWidget(ball_hint)
-
-        # ----【v2】全局显示/隐藏快捷键（录制式输入） ----
-        hk_row = QHBoxLayout()
-        hk_row.setSpacing(8)
-        hk_label = QLabel("全局显示/隐藏快捷键")
-        hk_label.setObjectName("dim")
-        hk_row.addWidget(hk_label)
-        hk_row.addStretch()
-        cur = str(self._mgr.settings.get("toggle_hotkey", "Alt+Space") or "")
-        self._hk_edit = QKeySequenceEdit(QKeySequence(cur))
-        self._hk_edit.setFixedWidth(150)
-        self._hk_edit.setToolTip("点击后按下新的组合键（需含 Ctrl/Alt/Shift/Win 修饰键）")
-        self._hk_edit.keySequenceChanged.connect(self._on_hotkey_changed)
-        hk_row.addWidget(self._hk_edit)
-        root.addLayout(hk_row)
-
         # ---- 滑杆区 ----
         root.addSpacing(2)
         root.addWidget(self._make_slider("图标大小", 32, 42, 2,
                                          "icon_size", self._fmt_px))
-        root.addWidget(self._make_slider("悬浮球大小", 28, 72, 1,
-                                         "ball_size", self._fmt_px))
         root.addWidget(self._make_slider("面板透明度", 50, 100, 1,
                                          "panel_opacity", self._fmt_opa))
         root.addWidget(self._make_slider("动画速度", 5, 20, 1,
@@ -567,7 +402,6 @@ class SettingsDialog(_FramelessShell):
 
         self.setStyleSheet(_DARK_QSS)
         self._reload_list()
-        self._refresh_ball_preview()      # 【v2.2】初始化悬浮球外观预览
 
     # ---------------- 滑杆构建 ----------------
     def _make_slider(self, name: str, lo: int, hi: int, step: int,
@@ -577,8 +411,7 @@ class SettingsDialog(_FramelessShell):
         raw = settings.get(key)
         if raw is None:
             # 各 key 的滑杆默认值
-            value = {"icon_size": 40, "ball_size": 42,
-                     "panel_opacity": 87, "anim_speed": 10}.get(key, lo)
+            value = {"icon_size": 40, "panel_opacity": 87, "anim_speed": 10}.get(key, lo)
         elif key == "panel_opacity":
             value = int(float(raw) * 100)
         elif key == "anim_speed":
@@ -665,68 +498,6 @@ class SettingsDialog(_FramelessShell):
         self._mgr.set_setting("panel_pinned", bool(checked))
         self.setting_changed.emit("panel_pinned", bool(checked))
 
-    # 【v2.1】智能排序开关：即时持久化并广播给悬浮球（开启即重排一次）
-    def _on_smart_toggled(self, checked: bool):
-        self._mgr.set_setting("smart_sort", bool(checked))
-        self.setting_changed.emit("smart_sort", bool(checked))
-
-    # 【v2.1】鱼眼开关：即时持久化并广播
-    def _on_fisheye_toggled(self, checked: bool):
-        self._mgr.set_setting("hover_fisheye", bool(checked))
-        self.setting_changed.emit("hover_fisheye", bool(checked))
-
-    # 【v2.1】主题切换：互斥选中 + 持久化广播
-    def _on_theme_clicked(self, key: str):
-        for k, btn in self._theme_btns.items():
-            btn.setChecked(k == key)     # 互斥：按下的选中，其余弹起
-        self._mgr.set_setting("theme", key)
-        self.setting_changed.emit("theme", key)
-        self._refresh_ball_preview()     # 【v2.2】默认预览配色随主题联动
-
-    # ----------------【v2.2】悬浮球外观 ----------------
-    def _refresh_ball_preview(self):
-        """刷新 48px 圆形预览：有贴图 → 圆形裁剪图；无 → 默认矢量球样式。"""
-        size = 48
-        dpr = self.devicePixelRatioF()
-        path = str(self._mgr.settings.get("ball_image", "") or "")
-        pm = QPixmap()
-        if path and os.path.exists(path):
-            try:
-                src = QPixmap(path)
-                if not src.isNull():
-                    src.setDevicePixelRatio(1.0)
-                    pm = circular_cover_pixmap(
-                        src, max(1, int(round(size * dpr))))
-                    pm.setDevicePixelRatio(dpr)
-            except Exception:
-                pm = QPixmap()           # 加载失败 → 显示默认样式，不报错
-        if pm.isNull():
-            pm = _default_ball_pixmap(size, dpr)
-        self._ball_preview.setPixmap(pm)
-
-    def _on_pick_ball_image(self):
-        """选择自定义图片：校验 → 拷贝到数据目录 → 写配置 → 即时广播。"""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择悬浮球图片", "",
-            "图片文件 (*.png *.jpg *.jpeg *.bmp *.webp);;所有文件 (*.*)")
-        if not path:
-            return
-        installed = install_ball_image(path)
-        if not installed:
-            QMessageBox.warning(
-                self, "悬浮球外观",
-                "无法加载所选图片，请换一张（支持 png / jpg / bmp / webp）。")
-            return
-        self._mgr.set_setting("ball_image", installed)
-        self.setting_changed.emit("ball_image", installed)
-        self._refresh_ball_preview()
-
-    def _on_reset_ball_image(self):
-        """恢复默认：清空贴图配置并广播（悬浮球回到矢量绘制）。"""
-        self._mgr.set_setting("ball_image", "")
-        self.setting_changed.emit("ball_image", "")
-        self._refresh_ball_preview()
-
     # 【合并】呼吸光影开关：同时写入呼吸动画与光影，两者强绑定
     def _on_breath_glow_toggled(self, checked: bool):
         try:
@@ -750,16 +521,6 @@ class SettingsDialog(_FramelessShell):
         except Exception:
             pass
 
-    # 【v2】全局热键录制：变更即时持久化并广播给悬浮球重注册
-    def _on_hotkey_changed(self, seq: QKeySequence):
-        try:
-            text = seq.toString(QKeySequence.SequenceFormat.PortableText) \
-                if seq else ""
-            self._mgr.set_setting("toggle_hotkey", text)
-            self.setting_changed.emit("toggle_hotkey", text)
-        except Exception:
-            pass
-
     def _on_add(self):
         dlg = AddAppDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_app:
@@ -773,14 +534,6 @@ class SettingsDialog(_FramelessShell):
         row = self._selected_row()
         apps = self._mgr.apps
         if 0 <= row < len(apps):
-            # 【v2】删除二次确认，防误触
-            ret = QMessageBox.question(
-                self, "删除应用",
-                f"确定删除「{apps[row].get('name', '')}」吗？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No)
-            if ret != QMessageBox.StandardButton.Yes:
-                return
             del apps[row]
             self._mgr.save()
             clear_icon_cache()

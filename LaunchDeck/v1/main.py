@@ -22,16 +22,12 @@ import datetime
 
 from PyQt6.QtWidgets import QApplication
 
-from core.app_manager import AppManager, cleanup_icon_cache_disk
-from core.hotkey import GlobalHotkeyFilter
+from core.app_manager import AppManager
 from ui.floating_ball import FloatingBall
-from ui.tray_icon import LaunchTray
 
 # 单实例锁：Windows 命名互斥体，防止重复启动
 _MUTEX_NAME = "Global\\LaunchDeck_SingleInstance"
 _mutex_handle = None
-_hotkey_filter = None      # 【v2】全局热键过滤器（持有引用防止被 GC）
-_tray = None               # 【v2.1】系统托盘图标（持有引用防止被 GC）
 
 
 def _acquire_single_instance() -> bool:
@@ -55,26 +51,17 @@ def _crash_log_path() -> str:
         base = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, "crash.log")
 
-_CRASH_LOG_MAX = 1024 * 1024    # 【v2.2.3】crash.log 上限 1MB，超限重置
-
 
 def _excepthook(exc_type, exc_value, exc_tb):
     """全局未捕获异常兜底：写崩溃日志，避免打包后异常静默丢失、程序闪退。"""
     try:
-        log = _crash_log_path()
-        # 【v2.2.3】轮转：超 1MB 直接重置（崩溃日志无保留价值，防无限膨胀）
-        try:
-            if os.path.exists(log) and os.path.getsize(log) > _CRASH_LOG_MAX:
-                os.remove(log)
-        except OSError:
-            pass
         lines = [
             "=" * 68,
             f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
             f"Unhandled exception:",
             "".join(traceback.format_exception(exc_type, exc_value, exc_tb)),
         ]
-        with open(log, "a", encoding="utf-8") as f:
+        with open(_crash_log_path(), "a", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
     except Exception:
         pass    # 日志本身绝不二次崩溃
@@ -100,33 +87,7 @@ def main():
     app.setStyle("Fusion")
 
     manager = AppManager()
-
-    # 【v2.2.3】启动时清理磁盘图标缓存孤儿项（来源被删/替换后旧 PNG 失效）
-    try:
-        cleanup_icon_cache_disk([a.get("exe_path", "") for a in manager.apps])
-    except Exception:
-        pass
-
-    # 【v2】全局热键（显示/隐藏悬浮球）
-    # 注意：GlobalHotkeyFilter 内部用独立工作线程监听（Qt 会吞掉线程消息，
-    # 不能走 nativeEventFilter），因此**不要** installNativeEventFilter。
-    # Qt 不接管所有权，必须持有引用直至退出，否则被 GC 后热键静默失效。
-    global _hotkey_filter
-    _hotkey_filter = GlobalHotkeyFilter()
-    hotkey = _hotkey_filter
-
-    ball = FloatingBall(manager, hotkey_filter=hotkey)
-    hotkey.toggled.connect(ball.toggle_visible)
-    # 按配置注册初始组合键（默认 Alt+Space；失败不阻断启动）
-    hotkey.register_sequence(
-        str(manager.settings.get("toggle_hotkey", "Alt+Space") or ""))
-
-    # 【v2.1】系统托盘图标：悬浮球隐藏后可从托盘找回；含 设置/退出 菜单。
-    # QSystemTrayIcon 不归 ball 管理，同样需要持有引用防止被 GC。
-    global _tray
-    _tray = LaunchTray(ball)
-    ball.set_tray(_tray)    # 【v2.1】注入引用：首次隐藏时托盘冒泡提示
-
+    ball = FloatingBall(manager)
     ball.show()
 
     sys.exit(app.exec())
