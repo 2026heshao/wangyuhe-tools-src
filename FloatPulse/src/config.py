@@ -26,6 +26,7 @@
   - task_reminder_enabled: 任务到期提醒开关（启动时 + 每日 9:00 托盘气泡）
   - quick_capture_enabled: 全局快速捕捉条开关
   - quick_capture_hotkey:  快速捕捉全局热键（如 "Ctrl+Alt+K"）
+  - quick_capture_pos:     快速捕捉输入条最后拖动位置 [x, y]（None=屏幕居中）
   - ball_size:            悬浮球球体直径（像素，48-88，默认 64）
   - hide_on_fullscreen:   全屏应用（视频/游戏/演示）前台时自动隐藏悬浮球
   - asset_thumb_size:     临时素材缩略图宽度（像素，80-160，决定网格每行个数）
@@ -61,6 +62,7 @@ DEFAULT_CONFIG = {
     "task_reminder_enabled": True,        # 任务到期提醒（托盘气泡）
     "quick_capture_enabled": True,        # 全局快速捕捉条
     "quick_capture_hotkey": "Ctrl+Alt+K", # 快速捕捉全局热键
+    "quick_capture_pos":    None,         # 快速捕捉输入条拖动后位置 [x, y]
     "ball_size":            64,           # 悬浮球球体直径（像素，48-88）
     "hide_on_fullscreen":   True,         # 全屏应用前台时自动隐藏悬浮球
     "fragment_preview_visible": True,     # 碎片工作台右侧预览面板是否显示
@@ -91,6 +93,7 @@ _CONFIG_TYPES = {
     "task_reminder_enabled": bool,
     "quick_capture_enabled": bool,
     "quick_capture_hotkey": str,
+    "quick_capture_pos":    list,
     "ball_size":            int,
     "hide_on_fullscreen":   bool,
     "fragment_preview_visible": bool,

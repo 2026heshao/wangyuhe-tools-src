@@ -178,6 +178,77 @@ def load_icon_pixmap(icon_path: str, size: int = 64) -> QPixmap:
 
 
 # ====================================================================
+# 拖拽添加：从文件路径构造应用条目（悬浮球拖入 exe/lnk 时用）
+# ====================================================================
+
+def get_exe_name(exe_path: str) -> str:
+    """
+    从 exe 的 Win32 版本资源识别软件显示名称。
+
+    优先级：FileDescription → ProductName → 文件名去扩展名。
+    任何失败（无版本信息 / 路径无效 / 非 Windows）都回退到文件名。
+    """
+    fallback = (os.path.splitext(os.path.basename(exe_path))[0]
+                if exe_path else "")
+    if not exe_path or not os.path.exists(exe_path):
+        return fallback
+    try:
+        import ctypes
+        ver = ctypes.windll.version
+        size = ver.GetFileVersionInfoSizeW(exe_path, None)
+        if not size:
+            return fallback
+        data = ctypes.create_string_buffer(size)
+        if not ver.GetFileVersionInfoW(exe_path, 0, size, data):
+            return fallback
+
+        # 取翻译表 → 拼出 StringFileInfo 的语言码（如 080404b0）
+        buf = ctypes.c_void_p()
+        buf_len = ctypes.c_uint()
+        if not ver.VerQueryValueW(data, "\\VarFileInfo\\Translation",
+                                  ctypes.byref(buf), ctypes.byref(buf_len)):
+            return fallback
+        if not buf.value or buf_len.value < 4:
+            return fallback
+        lang, codepage = ctypes.cast(buf, ctypes.POINTER(ctypes.c_uint16))[0:2]
+        lang_id = f"{lang:04X}{codepage:04X}"
+
+        # 依次查询 FileDescription / ProductName
+        for key in ("FileDescription", "ProductName"):
+            vbuf = ctypes.c_void_p()
+            vlen = ctypes.c_uint()
+            sub = f"\\StringFileInfo\\{lang_id}\\{key}"
+            if ver.VerQueryValueW(data, sub, ctypes.byref(vbuf),
+                                  ctypes.byref(vlen)) and vbuf.value:
+                text = ctypes.wstring_at(vbuf.value, vlen.value - 1).strip()
+                if text:
+                    return text
+    except Exception:
+        pass
+    return fallback
+
+
+def make_app_from_path(path: str) -> dict | None:
+    """
+    从拖入的文件路径构造一条应用条目（悬浮球拖拽添加，与 LaunchDeck 同款）。
+
+    - .lnk → 存快捷方式本身（点击即打开目标），名称为快捷方式文件名
+    - .exe → 名称取 exe 版本资源识别结果
+    - 其他类型 → 返回 None（由素材/碎片逻辑处理，不进启动器）
+    路径不存在 → 返回 None。
+    """
+    if not path or not os.path.exists(path):
+        return None
+    low = path.lower()
+    if low.endswith(".lnk"):
+        return {"name": os.path.splitext(os.path.basename(path))[0],
+                "exe_path": path}
+    if low.endswith(".exe"):
+        return {"name": get_exe_name(path), "exe_path": path}
+    return None
+
+
+# ====================================================================
 # 公共启动函数（主窗口导航页 / 小卡片软件页共用）
 # ====================================================================
 
@@ -213,6 +284,26 @@ def launch_app(app: dict, parent=None) -> bool:
             "文件可能已被移动或删除，请编辑该条目修正路径。",
         )
         return False
+
+    # ---- .lnk 快捷方式：CreateProcess 不支持直接执行，走 shell 打开 ----
+    # （lnk 自带参数/工作目录/图标，launch_args 附加参数对 lnk 不生效）
+    if exe_path.lower().endswith(".lnk"):
+        try:
+            os.startfile(exe_path)
+            return True
+        except FileNotFoundError:
+            QMessageBox.warning(
+                parent, "启动失败",
+                f"快捷方式「{name}」指向的目标不存在：\n{exe_path}\n\n"
+                "原文件可能已被移动或删除。",
+            )
+            return False
+        except OSError as e:
+            QMessageBox.critical(
+                parent, "启动异常",
+                f"启动「{name}」时发生异常：\n{str(e)}",
+            )
+            return False
 
     # ---- 组装参数列表（shlex posix=False 兼容 Windows 反斜杠路径） ----
     args_list = [exe_path]

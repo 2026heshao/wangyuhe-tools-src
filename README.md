@@ -7,7 +7,7 @@
 | 工具 | 说明 | 最新版本 | 安装包（Release） | 宣传页 |
 |------|------|------|------|------|
 | **LaunchDeck** | 桌面快捷启动悬浮球 | **v2.2.4** | [下载 ZIP](https://github.com/2026heshao/wangyuhe-tools-src/releases/download/launchdeck-v2.2.4/LaunchDeck_v2.2.4.zip)（约 51 MB，免安装） | [查看](LaunchDeck/宣传页/) |
-| **FloatPulse** | 知识库悬浮球 | **v3.0** | [下载 ZIP](https://github.com/2026heshao/wangyuhe-tools-src/releases/download/floatpulse-v3.0/FloatPulse.zip)（约 43 MB，免安装） | [查看](FloatPulse/宣传页/) |
+| **FloatPulse** | 知识库悬浮球 | **v3.0** | [下载 ZIP](https://github.com/2026heshao/wangyuhe-tools-src/releases/download/floatpulse-v3.0/FloatPulse.zip)（约 30 MB，免安装） | [查看](FloatPulse/宣传页/) |
 | **CacheClear** | 软件缓存清理工具 | v1.2 | [下载 EXE](https://github.com/2026heshao/wangyuhe-tools-src/releases/download/cacheclear-v1.2/CacheClear_setup_v1.2.exe)（约 25 MB） | — |
 | **PyPacker** | Python 打包辅助工具 | v1.0 | [下载 EXE](https://github.com/2026heshao/wangyuhe-tools-src/releases/download/pypacker-v1.0/PyPacker_setup_v1.0.exe)（约 26 MB） | — |
 

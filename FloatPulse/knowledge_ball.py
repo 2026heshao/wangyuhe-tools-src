@@ -668,7 +668,37 @@ class FloatingBall(QWidget):
                                     or url_str.startswith("https://")):
                         http_urls.append(url_str)
 
-        for path in local_files:
+        # ---- 1a. 应用类文件（exe/lnk）→ 应用启动器 ----
+        # 与 LaunchDeck 同款交互：拖入即收藏；不进素材池/碎片
+        added_apps = 0
+        dup_apps = 0
+        app_paths = [p for p in local_files
+                     if p.lower().endswith((".exe", ".lnk"))]
+        normal_files = [p for p in local_files
+                        if not p.lower().endswith((".exe", ".lnk"))]
+        if app_paths and self._config is not None:
+            from src.widget_app_launcher import make_app_from_path
+            apps = self._config.get("apps", [])
+            if not isinstance(apps, list):
+                apps = []
+            existed = {a.get("exe_path", "") for a in apps
+                       if isinstance(a, dict)}
+            for path in app_paths:
+                app_item = make_app_from_path(path)
+                if app_item is None:
+                    continue
+                if app_item["exe_path"] in existed:
+                    dup_apps += 1
+                    continue
+                apps.append(app_item)
+                existed.add(app_item["exe_path"])
+                added_apps += 1
+            if added_apps > 0:
+                self._config.set("apps", apps)
+                self._config.save()
+
+        # ---- 1b. 其他本地文件 → 临时素材 + 碎片拾取（原逻辑不变）----
+        for path in normal_files:
             if self._temp_asset_manager is not None:
                 if self._temp_asset_manager.add_asset(path) > 0:
                     added_assets += 1
@@ -745,13 +775,31 @@ class FloatingBall(QWidget):
                 self._card_window.notify_assets_changed()
             if added_frags > 0:
                 self._main_window.refresh_fragments()
+            if added_apps > 0:
+                # 软件导航页（索引 7）：内部做 load_apps_from_config + reload_settings
+                self._main_window._refresh_page(7)
+        # 同步刷新小卡片软件页（仅可见且停留在软件页时重建；
+        # 隐藏时无需处理——每次切入 app 页都会重读 config）
+        if (added_apps > 0 and self._card_window is not None
+                and self._card_window.isVisible()
+                and self._card_window._last_mode == "app"):
+            self._card_window._refresh_app_page()
 
-        # Toast 提示
-        if added_assets > 0:
+        # Toast 提示（重复拖入 added_apps=0 但 dup_apps>0 时也要有反馈）
+        if added_apps > 0 or dup_apps > 0:
+            if added_apps > 0:
+                tip = f"已添加 {added_apps} 个应用到启动器"
+                if dup_apps > 0:
+                    tip += f"（{dup_apps} 个已存在，跳过）"
+            else:
+                tip = f"{dup_apps} 个应用已在启动器中，跳过"
+            self._show_toast(tip)
+        elif added_assets > 0:
             self._show_toast(f"已收录 {added_assets} 个素材")
 
         # 成功反馈（A4）：球体光晕脉冲一次，不用读 Toast 也知道"接住了"
-        if added_assets > 0 or added_frags > 0:
+        if (added_assets > 0 or added_frags > 0
+                or added_apps > 0 or dup_apps > 0):
             self.pulse()
 
         event.acceptProposedAction()
@@ -1981,7 +2029,7 @@ def main():
     hotkey_mgr = GlobalHotkeyManager()
     app.eventDispatcher().installNativeEventFilter(hotkey_mgr)
 
-    quick_capture = QuickCaptureWindow(fragment_manager, theme=config_manager.get("theme", "light"))
+    quick_capture = QuickCaptureWindow(fragment_manager, theme=config_manager.get("theme", "light"), config_manager=config_manager)
 
     def _apply_quick_capture():
         """按当前配置重注册快速捕捉热键（开关/热键串变更/恢复默认时调用）"""
