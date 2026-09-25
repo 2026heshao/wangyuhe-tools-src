@@ -25,3 +25,9 @@ temp_assets/
 _t_out.txt
 优化调研清单.md
 build.spec
+
+# 发布包 / 安装包：一律走 GitHub Releases，绝不进 git 历史
+*.zip
+*.7z
+*.rar
+*.msi

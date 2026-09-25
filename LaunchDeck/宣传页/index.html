@@ -1,0 +1,1577 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LaunchDeck —— 轻量级应用图标收纳快捷导航 · 桌面悬浮球</title>
+<meta name="description" content="LaunchDeck 是一款 Windows 桌面快捷启动悬浮球：42px 贴边的球，悬停滑出横滑应用面板，一键打开常用软件。轻量常驻、图标自由增删排序、三套面板配色、全局热键与托盘常驻。MIT 开源。">
+<meta name="theme-color" content="#1A1712">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;0,900;1,500&family=Noto+Serif+SC:wght@400;600;700;900&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   LaunchDeck 专属宣传页
+   设计方向：油画质感 × 磨砂玻璃
+   --------------------------------------------------------------------------
+   声明（不夸大）：本页所有功能描述均取自 v2 源码实际实现，未实现的能力一律
+   标为「规划中」，不做营销化虚构。
+   ========================================================================== */
+
+/* ---------- 1. 设计令牌 ---------- */
+:root{
+  /* 油画底色：从暮色靛蓝 → 暖赭 → 琥珀夕照 */
+  --ink-900:#0F0D0A;
+  --ink-800:#16130F;
+  --ink-700:#1F1A15;
+  --ink-600:#2A231B;
+  --ochre:#B8752E;
+  --amber:#E8A33D;
+  --sun:#F6CF7A;
+  --rose:#C9705A;
+  --teal:#3F7E78;
+  --ice:#7FC6E8;
+  --ice-deep:#1E4A6B;
+
+  /* 语义色（保证正文对比度 ≥ 4.5:1） */
+  --canvas:#13100C;
+  --text:#F5EEE2;
+  --text-soft:#CFC3B0;
+  --text-mute:#9C8F7B;
+  --line:rgba(245,238,226,.14);
+  --line-soft:rgba(245,238,226,.08);
+
+  /* 玻璃层 */
+  --glass:rgba(30,25,19,.52);
+  --glass-hi:rgba(52,44,34,.44);
+  --glass-brd:rgba(246,207,122,.22);
+
+  --focus:#F6CF7A;
+
+  --sp-1:8px;  --sp-2:16px; --sp-3:24px; --sp-4:40px;
+  --sp-5:64px; --sp-6:96px; --sp-7:140px;
+
+  --maxw:1180px;
+  --r-sm:10px; --r-md:16px; --r-lg:24px; --r-xl:34px;
+
+  --ease-out:cubic-bezier(.22,.68,.32,1);
+  --ease-in:cubic-bezier(.55,.06,.68,.19);
+
+  --font-display:"Playfair Display","Noto Serif SC",Georgia,serif;
+  --font-serif-cn:"Noto Serif SC","Songti SC",serif;
+  --font-body:"Inter","HarmonyOS Sans SC","Microsoft YaHei",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Mono",Consolas,monospace;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{
+  margin:0;
+  background:var(--canvas);
+  color:var(--text);
+  font-family:var(--font-body);
+  font-size:16px;
+  line-height:1.7;
+  font-weight:400;
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+img,svg{display:block;max-width:100%}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit}
+:focus-visible{
+  outline:2px solid var(--focus);
+  outline-offset:3px;
+  border-radius:4px;
+}
+::selection{background:rgba(246,207,122,.28);color:#16130F}
+
+/* 跳转链接（键盘可达） */
+.skip{
+  position:absolute;left:-9999px;top:0;z-index:999;
+  background:var(--sun);color:#1A1712;padding:12px 20px;
+  border-radius:0 0 var(--r-sm) 0;font-weight:600;
+}
+.skip:focus{left:0}
+
+/* ---------- 2. 油画背景层（整站固定） ---------- */
+.atelier{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+}
+.atelier .oil{position:absolute;inset:0;width:100%;height:100%}
+/* 笔触噪点：真实颜料颗粒 */
+.atelier .grain{
+  position:absolute;inset:-20%;
+  opacity:.5;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='240' height='240' filter='url(%23n)' opacity='.55'/></svg>");
+}
+/* 画布经纬 */
+.atelier .weave{
+  position:absolute;inset:0;opacity:.16;
+  background-image:
+    repeating-linear-gradient(90deg,rgba(0,0,0,.5) 0 1px,transparent 1px 4px),
+    repeating-linear-gradient(0deg,rgba(255,255,255,.16) 0 1px,transparent 1px 4px);
+}
+/* 暖光/冷光呼吸 */
+.atelier .glow{
+  position:absolute;border-radius:50%;filter:blur(90px);
+  animation:drift 26s var(--ease-out) infinite alternate;
+}
+@keyframes drift{
+  from{transform:translate3d(0,0,0) scale(1)}
+  to{transform:translate3d(3%,-4%,0) scale(1.12)}
+}
+
+/* ---------- 3. 版心 ---------- */
+.shell{position:relative;z-index:2}
+.wrap{width:min(100% - 40px,var(--maxw));margin-inline:auto}
+section{position:relative}
+
+/* ---------- 4. 顶栏 ---------- */
+.nav{
+  position:sticky;top:0;z-index:60;
+  backdrop-filter:blur(18px) saturate(140%);
+  -webkit-backdrop-filter:blur(18px) saturate(140%);
+  background:linear-gradient(180deg,rgba(19,16,12,.86),rgba(19,16,12,.42));
+  border-bottom:1px solid var(--line-soft);
+}
+.nav__in{
+  display:flex;align-items:center;gap:var(--sp-3);
+  min-height:66px;
+}
+.brand{display:flex;align-items:center;gap:12px;font-weight:600;letter-spacing:.01em}
+.brand__mark{
+  width:34px;height:34px;border-radius:50%;flex:0 0 34px;
+  background:radial-gradient(circle at 34% 30%,#5A4630,#241E17 70%);
+  border:1px solid rgba(246,207,122,.34);
+  box-shadow:0 0 16px rgba(232,163,61,.34),inset 0 1px 0 rgba(255,255,255,.16);
+  display:grid;place-items:center;
+}
+.brand__name{font-family:var(--font-display);font-size:19px;letter-spacing:.02em}
+.brand__ver{
+  font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;
+  color:var(--sun);border:1px solid var(--glass-brd);
+  padding:2px 7px;border-radius:999px;
+}
+.nav__links{display:flex;gap:2px;margin-left:auto}
+.nav__links a{
+  padding:9px 13px;border-radius:999px;font-size:14px;color:var(--text-soft);
+  transition:background .2s var(--ease-out),color .2s var(--ease-out);
+}
+.nav__links a:hover{background:rgba(246,207,122,.1);color:var(--text)}
+.nav__cta{
+  padding:9px 18px;border-radius:999px;font-size:14px;font-weight:600;
+  background:linear-gradient(135deg,var(--sun),var(--ochre));
+  color:#20180E;border:none;cursor:pointer;
+  transition:transform .2s var(--ease-out),box-shadow .2s var(--ease-out);
+  box-shadow:0 6px 20px rgba(184,117,46,.34);
+}
+.nav__cta:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(232,163,61,.44)}
+
+/* ---------- 5. 通用标题 ---------- */
+.eyebrow{
+  display:inline-flex;align-items:center;gap:9px;
+  font-family:var(--font-mono);font-size:11.5px;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--amber);margin:0 0 18px;
+}
+.eyebrow::before{
+  content:"";width:26px;height:1px;background:linear-gradient(90deg,var(--amber),transparent);
+}
+h1,h2,h3{font-family:var(--font-display);font-weight:700;line-height:1.14;margin:0}
+.h-sec{
+  font-size:clamp(30px,4.6vw,54px);letter-spacing:-.015em;
+  margin:0 0 var(--sp-3);
+}
+.h-sec em{
+  font-style:italic;
+  background:linear-gradient(120deg,var(--sun),var(--rose) 55%,var(--amber));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.lead{
+  font-size:clamp(15.5px,1.35vw,19px);color:var(--text-soft);
+  max-width:64ch;margin:0 0 var(--sp-4);line-height:1.82;
+}
+.sec-head{max-width:760px;margin-bottom:var(--sp-5)}
+
+/* ---------- 6. 玻璃卡片 ---------- */
+.glass{
+  position:relative;
+  background:var(--glass);
+  border:1px solid var(--glass-brd);
+  border-radius:var(--r-lg);
+  backdrop-filter:blur(16px) saturate(130%);
+  -webkit-backdrop-filter:blur(16px) saturate(130%);
+  box-shadow:
+    0 20px 50px -20px rgba(0,0,0,.72),
+    inset 0 1px 0 rgba(255,255,255,.1);
+}
+.glass::after{   /* 玻璃高光斜切 */
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(150deg,rgba(255,255,255,.1),transparent 42%);
+}
+
+/* ---------- 7. HERO ---------- */
+.hero{padding:clamp(56px,8vw,104px) 0 var(--sp-6)}
+.hero__grid{
+  display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);
+  gap:clamp(28px,4vw,60px);align-items:center;
+}
+.hero h1{
+  font-size:clamp(34px,5vw,60px);letter-spacing:-.028em;margin:0 0 var(--sp-3);
+}
+.hero h1 .ln{display:block;white-space:nowrap}
+.hero h1 .ln--oil{
+  font-style:italic;
+  background:linear-gradient(110deg,var(--sun) 6%,var(--amber) 38%,var(--rose) 74%,#9C6BA8);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  padding-bottom:.08em;   /* 斜体降部不被裁切 */
+}
+.hero__sub{
+  font-family:var(--font-serif-cn);font-size:clamp(16px,1.5vw,20px);
+  color:var(--text-soft);line-height:1.9;margin:0 0 var(--sp-4);max-width:34em;
+}
+.hero__actions{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+/* 规格条：四等分，窄屏自动折成两行且不出现悬空分隔线 */
+.spec{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:18px 0;margin-top:var(--sp-4);
+  border-top:1px solid var(--line-soft);padding-top:var(--sp-3);
+}
+.spec__item{padding-right:clamp(14px,2.6vw,34px);}
+.spec__item + .spec__item{
+  border-left:1px solid var(--line-soft);
+  padding-left:clamp(14px,2.6vw,34px);
+}
+.btn{
+  display:inline-flex;align-items:center;gap:10px;
+  padding:15px 28px;border-radius:999px;font-weight:600;font-size:15px;
+  cursor:pointer;border:1px solid transparent;
+  transition:transform .22s var(--ease-out),box-shadow .22s var(--ease-out),
+             background .22s var(--ease-out),border-color .22s var(--ease-out);
+}
+.btn--oil{
+  background:linear-gradient(135deg,var(--sun),var(--ochre) 82%);
+  color:#1E160C;box-shadow:0 12px 34px -8px rgba(232,163,61,.62);
+}
+.btn--oil:hover{transform:translateY(-3px);box-shadow:0 18px 42px -8px rgba(246,207,122,.7)}
+.btn--ghost{
+  background:rgba(245,238,226,.05);color:var(--text);
+  border-color:var(--line);backdrop-filter:blur(10px);
+}
+.btn--ghost:hover{background:rgba(246,207,122,.12);border-color:var(--glass-brd);transform:translateY(-3px)}
+.btn__icn{width:18px;height:18px;flex:0 0 18px}
+
+/* 规格条 */
+.spec__k{
+  display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--text-mute);font-family:var(--font-mono);margin-bottom:5px;
+}
+.spec__v{font-family:var(--font-display);font-size:clamp(15px,1.35vw,19px);
+  color:var(--sun);white-space:nowrap}
+
+/* 舞台：桌面实景 */
+.stage{
+  position:relative;border-radius:var(--r-xl);
+  padding:clamp(18px,2.4vw,30px);
+  background:
+    radial-gradient(120% 90% at 22% 8%,rgba(201,112,90,.38),transparent 58%),
+    radial-gradient(100% 80% at 88% 96%,rgba(63,126,120,.34),transparent 62%),
+    linear-gradient(155deg,#3B2A1C,#221A13 58%,#171310);
+  border:1px solid rgba(246,207,122,.2);
+  box-shadow:0 40px 90px -34px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.1);
+  overflow:hidden;
+}
+.stage::before{ /* 画布肌理 */
+  content:"";position:absolute;inset:0;pointer-events:none;opacity:.34;
+  background-image:repeating-linear-gradient(38deg,rgba(255,255,255,.05) 0 2px,transparent 2px 7px),
+                   repeating-linear-gradient(-52deg,rgba(0,0,0,.12) 0 2px,transparent 2px 9px);
+}
+.stage__cap{
+  position:relative;font-family:var(--font-mono);font-size:11px;
+  letter-spacing:.16em;text-transform:uppercase;color:rgba(246,207,122,.82);
+  margin:0 0 14px;display:flex;align-items:center;gap:8px;
+}
+.stage__cap::before{content:"";width:7px;height:7px;border-radius:50%;
+  background:var(--sun);box-shadow:0 0 10px var(--sun)}
+.stage svg{width:100%;height:auto;position:relative}
+
+/* ---------- 8. 通用分节间距 ---------- */
+.band{padding:var(--sp-6) 0}
+.band--tight{padding:var(--sp-5) 0}
+
+/* ---------- 9. 锚点特性区 ---------- */
+.anchor-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(252px,1fr));
+  gap:20px;
+}
+.card{
+  padding:26px 24px 28px;position:relative;overflow:hidden;
+  transition:transform .28s var(--ease-out),border-color .28s var(--ease-out);
+}
+.card:hover{transform:translateY(-5px);border-color:rgba(246,207,122,.42)}
+.card__icn{
+  width:44px;height:44px;border-radius:13px;display:grid;place-items:center;
+  margin-bottom:18px;position:relative;z-index:1;
+  background:linear-gradient(140deg,rgba(246,207,122,.2),rgba(201,112,90,.12));
+  border:1px solid rgba(246,207,122,.28);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14);
+}
+.card__icn svg{width:22px;height:22px;stroke:var(--sun);fill:none;
+  stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.card h3{font-size:20px;margin:0 0 9px;position:relative;z-index:1}
+.card p{margin:0;font-size:14.5px;color:var(--text-soft);line-height:1.78;position:relative;z-index:1}
+
+/* ---------- 10. 四步机制 ---------- */
+.steps{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));
+  gap:1px;background:var(--line-soft);border:1px solid var(--line-soft);
+  border-radius:var(--r-lg);overflow:hidden;
+}
+.step{
+  padding:30px 26px 34px;background:rgba(24,20,15,.62);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  position:relative;
+}
+.step__n{
+  font-family:var(--font-display);font-size:44px;font-style:italic;
+  line-height:1;margin-bottom:14px;
+  background:linear-gradient(150deg,var(--sun),rgba(184,117,46,.28));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.step h3{font-size:18px;margin:0 0 8px}
+.step p{margin:0;font-size:14px;color:var(--text-soft);line-height:1.76}
+.step__tag{
+  display:inline-block;margin-top:14px;font-family:var(--font-mono);
+  font-size:10.5px;letter-spacing:.1em;color:var(--amber);
+  border:1px solid rgba(232,163,61,.3);border-radius:999px;padding:3px 9px;
+}
+
+/* ---------- 11. 图鉴（锚点图） ---------- */
+.atlas{
+  display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);
+  gap:clamp(24px,3.4vw,48px);align-items:center;
+}
+.atlas--flip .atlas__art{order:2}
+.art-frame{
+  border-radius:var(--r-xl);padding:clamp(16px,2vw,26px);
+  background:linear-gradient(158deg,rgba(240,224,196,.1),rgba(20,16,12,.68));
+  border:1px solid rgba(246,207,122,.2);
+  box-shadow:0 34px 80px -34px rgba(0,0,0,.88),inset 0 1px 0 rgba(255,255,255,.1);
+  position:relative;overflow:hidden;
+}
+.art-frame svg{width:100%;height:auto}
+.art-frame__badge{
+  position:absolute;top:14px;right:16px;font-family:var(--font-mono);
+  font-size:10px;letter-spacing:.12em;color:rgba(246,207,122,.76);
+  border:1px solid rgba(232,163,61,.28);border-radius:999px;padding:3px 9px;
+  background:rgba(20,16,12,.56);backdrop-filter:blur(6px);z-index:3;
+}
+.feat-list{list-style:none;padding:0;margin:0}
+.feat-list li{
+  display:flex;gap:14px;padding:15px 0;border-bottom:1px solid var(--line-soft);
+}
+.feat-list li:last-child{border-bottom:none}
+.feat-list .tick{
+  flex:0 0 22px;width:22px;height:22px;border-radius:50%;margin-top:3px;
+  display:grid;place-items:center;
+  background:rgba(246,207,122,.14);border:1px solid rgba(246,207,122,.34);
+}
+.feat-list .tick svg{width:11px;height:11px;stroke:var(--sun);fill:none;stroke-width:2.4;
+  stroke-linecap:round;stroke-linejoin:round}
+.feat-list strong{display:block;font-size:15.5px;font-weight:600;margin-bottom:3px;
+  font-family:var(--font-body)}
+.feat-list span{font-size:14px;color:var(--text-soft);line-height:1.72}
+.feat-list code{
+  font-family:var(--font-mono);font-size:12.5px;color:var(--sun);
+  background:rgba(246,207,122,.1);padding:1px 6px;border-radius:5px;
+}
+
+/* ---------- 12. 配色三选一（可交互） ---------- */
+.themes{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:18px;
+}
+.theme{
+  text-align:left;padding:20px;cursor:pointer;border-radius:var(--r-lg);
+  background:var(--glass);border:1px solid var(--glass-brd);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  transition:transform .26s var(--ease-out),border-color .26s var(--ease-out),
+             box-shadow .26s var(--ease-out);
+  position:relative;
+}
+.theme:hover{transform:translateY(-5px)}
+.theme[aria-pressed="true"]{
+  border-color:var(--sun);
+  box-shadow:0 0 0 1px var(--sun),0 18px 44px -16px rgba(232,163,61,.5);
+}
+.theme__swatch{
+  height:96px;border-radius:var(--r-md);margin-bottom:16px;position:relative;
+  overflow:hidden;border:1px solid rgba(255,255,255,.1);
+}
+.theme__swatch .b{
+  position:absolute;border-radius:50%;
+  box-shadow:0 3px 12px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.3);
+}
+.theme__swatch .b--a{width:30px;height:30px;left:20px;top:33px}
+.theme__swatch .b--b{width:22px;height:22px;left:60px;top:40px;opacity:.86}
+.theme__swatch .b--c{width:16px;height:16px;left:90px;top:44px;opacity:.7}
+.theme__name{
+  display:flex;align-items:center;gap:9px;font-size:16px;font-weight:600;
+  font-family:var(--font-body);margin-bottom:5px;
+}
+.theme__name .dot{width:9px;height:9px;border-radius:50%;flex:0 0 9px}
+.theme__hint{font-size:13px;color:var(--text-soft);line-height:1.66;margin:0}
+.theme__hex{
+  font-family:var(--font-mono);font-size:10.5px;color:var(--text-mute);
+  margin-top:10px;letter-spacing:.04em;
+}
+
+/* ---------- 13. 快捷键演示 ---------- */
+.keys{
+  display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);
+  gap:clamp(24px,3.4vw,48px);align-items:center;
+}
+.keypad{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:20px 0 22px}
+.kbd{
+  font-family:var(--font-mono);font-size:13px;font-weight:500;
+  padding:12px 17px;border-radius:11px;color:var(--text);
+  background:linear-gradient(180deg,rgba(255,255,255,.1),rgba(255,255,255,.03));
+  border:1px solid var(--line);
+  box-shadow:0 3px 0 rgba(0,0,0,.44),inset 0 1px 0 rgba(255,255,255,.14);
+  transition:transform .12s var(--ease-out),box-shadow .12s var(--ease-out),
+             background .12s var(--ease-out);
+}
+.kbd.is-down{
+  transform:translateY(3px);
+  box-shadow:0 0 0 rgba(0,0,0,.44),inset 0 1px 0 rgba(255,255,255,.2);
+  background:linear-gradient(180deg,rgba(246,207,122,.34),rgba(184,117,46,.22));
+  border-color:rgba(246,207,122,.6);color:#fff;
+}
+.kbd__plus{color:var(--text-mute);font-size:14px}
+.key-note{font-size:14px;color:var(--text-soft);line-height:1.8;margin:0}
+.key-note code{
+  font-family:var(--font-mono);font-size:12.5px;color:var(--sun);
+  background:rgba(246,207,122,.1);padding:1px 6px;border-radius:5px;
+}
+
+/* 演示屏 */
+.demo-screen{
+  border-radius:var(--r-lg);padding:14px;position:relative;overflow:hidden;
+  background:linear-gradient(160deg,#2C2016,#171310);
+  border:1px solid rgba(246,207,122,.18);
+  box-shadow:inset 0 0 60px rgba(0,0,0,.6);
+}
+.demo-screen svg{width:100%;height:auto}
+.demo-hint{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;
+  color:var(--text-mute);text-align:center;margin:12px 0 0;
+}
+
+/* ---------- 14. 设置窗规格（表格化） ---------- */
+.spec-table{
+  width:100%;border-collapse:collapse;font-size:14.5px;
+}
+.spec-table caption{
+  text-align:left;font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--amber);padding-bottom:14px;
+}
+.spec-table th,.spec-table td{
+  text-align:left;padding:13px 16px;border-bottom:1px solid var(--line-soft);
+  vertical-align:top;
+}
+.spec-table th{
+  font-family:var(--font-body);font-weight:600;font-size:13.5px;
+  color:var(--text);white-space:nowrap;
+}
+.spec-table td{color:var(--text-soft)}
+.spec-table td:last-child{
+  font-family:var(--font-mono);font-size:12.5px;color:var(--sun);white-space:nowrap;
+}
+.spec-table tr:hover th{color:var(--sun)}
+
+/* ---------- 15. 路线图 ---------- */
+.road{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:18px}
+.road__col{padding:24px}
+.road__head{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;margin-bottom:16px;padding-bottom:14px;
+  border-bottom:1px solid var(--line-soft);
+}
+.road__head h3{font-size:17px;margin:0}
+.chip{
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;
+  padding:3px 9px;border-radius:999px;white-space:nowrap;
+}
+.chip--done{background:rgba(63,126,120,.24);color:#8FD9CF;border:1px solid rgba(63,126,120,.5)}
+.chip--plan{background:rgba(232,163,61,.16);color:var(--sun);border:1px solid rgba(232,163,61,.4)}
+.road ul{list-style:none;margin:0;padding:0}
+.road li{
+  font-size:14px;color:var(--text-soft);padding:7px 0 7px 20px;position:relative;line-height:1.7;
+}
+.road li::before{
+  content:"";position:absolute;left:2px;top:15px;width:6px;height:6px;
+  border-radius:50%;background:var(--amber);opacity:.8;
+}
+.road__col--plan li::before{background:transparent;border:1px solid var(--amber);opacity:.9}
+
+/* ---------- 16. 免责/声明条 ---------- */
+.note{
+  display:flex;gap:16px;align-items:flex-start;padding:22px 24px;
+  border-radius:var(--r-md);
+  background:rgba(246,207,122,.06);
+  border:1px solid rgba(246,207,122,.2);
+}
+.note svg{width:20px;height:20px;flex:0 0 20px;margin-top:3px;
+  stroke:var(--sun);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.note p{margin:0;font-size:14px;color:var(--text-soft);line-height:1.8}
+.note strong{color:var(--text)}
+
+/* ---------- 17. CTA ---------- */
+.cta{
+  padding:clamp(38px,5vw,68px) clamp(26px,4vw,66px);text-align:center;
+  border-radius:var(--r-xl);position:relative;overflow:hidden;
+  background:
+    radial-gradient(110% 130% at 12% 6%,rgba(201,112,90,.34),transparent 56%),
+    radial-gradient(100% 120% at 88% 96%,rgba(63,126,120,.3),transparent 58%),
+    linear-gradient(160deg,#2A2016,#171310);
+  border:1px solid rgba(246,207,122,.24);
+  box-shadow:0 40px 90px -40px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.1);
+}
+.cta h2{font-size:clamp(28px,4.4vw,50px);margin:0 0 18px}
+.cta p{max-width:56ch;margin:0 auto var(--sp-4);color:var(--text-soft);font-size:16px}
+.cta__row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+
+/* 安装三步 */
+.install{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(212px,1fr));
+  gap:12px;margin-top:var(--sp-4);text-align:left;
+}
+.install__step{
+  display:flex;gap:13px;align-items:flex-start;
+  padding:16px 18px;border-radius:var(--r-md);
+  background:rgba(16,13,10,.42);
+  border:1px solid var(--line-soft);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+.install__n{
+  flex:0 0 24px;width:24px;height:24px;border-radius:50%;
+  display:grid;place-items:center;
+  font-family:var(--font-mono);font-size:11.5px;font-weight:500;
+  color:#2A1E10;background:linear-gradient(135deg,var(--sun),var(--ochre));
+  box-shadow:0 3px 10px rgba(184,117,46,.36);
+}
+.install__step strong{
+  display:block;font-size:14.5px;font-weight:600;margin-bottom:3px;color:var(--text);
+}
+.install__step span{font-size:13px;color:var(--text-soft);line-height:1.66}
+.install__step code{
+  font-family:var(--font-mono);font-size:12px;color:var(--sun);
+  background:rgba(246,207,122,.1);padding:1px 5px;border-radius:4px;
+  word-break:break-all;
+}
+.cta__note{
+  max-width:62ch;margin:var(--sp-3) auto 0;font-size:13.5px;
+  color:var(--text-soft);line-height:1.8;
+}
+.cta__meta{
+  margin-top:var(--sp-3);font-family:var(--font-mono);font-size:11.5px;
+  letter-spacing:.1em;color:var(--text-mute);
+}
+
+/* ---------- 18. 页脚 ---------- */
+.foot{
+  padding:var(--sp-4) 0 var(--sp-5);border-top:1px solid var(--line-soft);
+  margin-top:var(--sp-6);
+}
+.foot__in{
+  display:flex;flex-wrap:wrap;gap:16px;align-items:center;
+  justify-content:space-between;font-size:13.5px;color:var(--text-mute);
+}
+.foot__links{display:flex;gap:20px;flex-wrap:wrap}
+.foot__links a{color:var(--text-soft);transition:color .2s var(--ease-out)}
+.foot__links a:hover{color:var(--sun)}
+
+/* 收尾点题 */
+.colophon{
+  text-align:center;font-family:var(--font-serif-cn);
+  font-size:clamp(15px,1.6vw,19px);line-height:1.9;
+  color:var(--text-soft);max-width:44ch;margin:0 auto var(--sp-5);
+  padding-top:var(--sp-3);
+}
+.colophon span{color:var(--amber);display:block;margin-bottom:14px;font-size:13px}
+
+/* ---------- 19. 滚动揭示 ---------- */
+.reveal{opacity:0;transform:translate3d(0,16px,0);
+  transition:opacity .55s var(--ease-out),transform .55s var(--ease-out)}
+.reveal.is-in{opacity:1;transform:none}
+.no-js .reveal{opacity:1;transform:none}
+
+/* ---------- 20. 响应式 ---------- */
+@media (max-width:1024px){
+  .hero__grid{grid-template-columns:1fr;gap:36px}
+  .atlas,.atlas--flip,.keys{grid-template-columns:1fr;gap:30px}
+  .atlas--flip .atlas__art{order:0}
+  .art-frame{max-width:520px;margin-inline:auto}
+  .nav__links{display:none}
+}
+@media (max-width:760px){
+  .wrap{width:min(100% - 28px,var(--maxw))}
+  .band{padding:var(--sp-5) 0}
+  .hero{padding:40px 0 56px}
+  .hero h1 .ln{white-space:normal}   /* 窄屏允许换行，避免撑破 */
+  .spec{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 0}
+  .spec__item:nth-child(odd){border-left:none;padding-left:0}
+  .spec__item:nth-child(n+3){
+    border-top:1px solid var(--line-soft);
+    padding-top:14px;margin-top:4px;
+  }
+  .spec__v{font-size:16px}
+  .spec-table th,.spec-table td{padding:11px 10px;display:block;border-bottom:none}
+  .spec-table tr{border-bottom:1px solid var(--line-soft);display:block;padding:10px 0}
+  .spec-table th{white-space:normal;padding-bottom:2px}
+  .spec-table td{padding-top:2px;padding-bottom:2px}
+  .spec-table td:last-child{padding-top:6px}
+  .spec-table thead{display:none}
+  .foot__in{flex-direction:column;align-items:flex-start}
+}
+
+/* ---------- 21. 降低动效 ---------- */
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{
+    animation-duration:.001ms !important;animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+  }
+  .reveal{opacity:1;transform:none}
+  .atelier .glow{animation:none}
+  .card:hover,.theme:hover,.btn:hover{transform:none}
+}
+</style>
+</head>
+<body class="no-js">
+<a class="skip" href="#main">跳到主要内容</a>
+
+<!-- ============ 油画背景 ============ -->
+<div class="atelier" aria-hidden="true">
+  <svg class="oil" viewBox="0 0 1920 1200" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <!-- 笔触：把色带揉进画布 -->
+      <filter id="brush" x="-12%" y="-12%" width="124%" height="124%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.006 0.019"
+                      numOctaves="4" seed="11" result="t"/>
+        <feDisplacementMap in="SourceGraphic" in2="t" scale="128"
+                           xChannelSelector="R" yChannelSelector="G" result="d"/>
+        <feGaussianBlur in="d" stdDeviation="7"/>
+      </filter>
+      <filter id="soften" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="46"/>
+      </filter>
+      <linearGradient id="oilBase" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0"   stop-color="#241A12"/>
+        <stop offset=".34" stop-color="#17130F"/>
+        <stop offset=".7"  stop-color="#131A1F"/>
+        <stop offset="1"   stop-color="#0E1116"/>
+      </linearGradient>
+      <radialGradient id="glowA" cx=".2" cy=".14" r=".62">
+        <stop offset="0" stop-color="#E8A33D" stop-opacity=".5"/>
+        <stop offset="1" stop-color="#E8A33D" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="glowB" cx=".88" cy=".72" r=".56">
+        <stop offset="0" stop-color="#3F7E78" stop-opacity=".44"/>
+        <stop offset="1" stop-color="#3F7E78" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="glowC" cx=".62" cy=".3" r=".38">
+        <stop offset="0" stop-color="#C9705A" stop-opacity=".34"/>
+        <stop offset="1" stop-color="#C9705A" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+
+    <rect width="1920" height="1200" fill="url(#oilBase)"/>
+
+    <!-- 厚涂色带 -->
+    <g filter="url(#brush)" opacity=".92">
+      <path d="M-120 300 C 300 180 620 400 980 300 S 1560 140 2040 320 L2040 -60 L-120 -60Z"
+            fill="#C9705A" opacity=".42"/>
+      <path d="M-120 560 C 260 700 700 430 1080 570 S 1620 440 2040 600 L2040 200 L-120 200Z"
+            fill="#B8752E" opacity=".4"/>
+      <path d="M-120 840 C 380 700 700 960 1120 820 S 1680 700 2040 860 L2040 460 L-120 460Z"
+            fill="#4A5C63" opacity=".36"/>
+      <path d="M-120 1140 C 320 1010 760 1230 1180 1050 S 1700 960 2040 1120 L2040 720 L-120 720Z"
+            fill="#1E4A6B" opacity=".44"/>
+      <path d="M-120 1400 C 420 1220 880 1420 1300 1240 S 1760 1180 2040 1320 L2040 1020 L-120 1020Z"
+            fill="#22333E" opacity=".6"/>
+    </g>
+
+    <!-- 罩染光晕 -->
+    <g filter="url(#soften)">
+      <rect x="-260" y="-300" width="1300" height="1120" fill="url(#glowA)"/>
+      <rect x="960"  y="180"  width="1220" height="1180" fill="url(#glowB)"/>
+      <rect x="700"  y="-160" width="1000" height="900" fill="url(#glowC)"/>
+    </g>
+
+    <!-- 油画刮刀痕 -->
+    <g opacity=".19" stroke-linecap="round" fill="none">
+      <path d="M120 980 C 520 900 820 1060 1260 940" stroke="#F6CF7A" stroke-width="2.4"/>
+      <path d="M60 1090 C 420 1010 900 1150 1500 1010" stroke="#C9705A" stroke-width="2"/>
+      <path d="M300 200 C 700 140 1000 300 1500 190" stroke="#7FC6E8" stroke-width="1.8"/>
+    </g>
+  </svg>
+  <div class="weave"></div>
+  <div class="grain"></div>
+</div>
+
+<div class="shell">
+
+<!-- ============ 顶栏 ============ -->
+<header class="nav">
+  <div class="wrap nav__in">
+    <a class="brand" href="#top" aria-label="LaunchDeck 首页">
+      <span class="brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none">
+          <rect x="3.4" y="3.4" width="7.2" height="7.2" rx="1.9" fill="#F6CF7A"/>
+          <rect x="13.4" y="3.4" width="7.2" height="7.2" rx="1.9" fill="#F6CF7A" opacity=".82"/>
+          <rect x="3.4" y="13.4" width="7.2" height="7.2" rx="1.9" fill="#F6CF7A" opacity=".82"/>
+          <rect x="13.4" y="13.4" width="7.2" height="7.2" rx="1.9" fill="#F6CF7A" opacity=".62"/>
+        </svg>
+      </span>
+      <span class="brand__name">LaunchDeck</span>
+      <span class="brand__ver">V2.2.4</span>
+    </a>
+    <nav class="nav__links" aria-label="页面导航">
+      <a href="#why">为什么</a>
+      <a href="#how">怎么用</a>
+      <a href="#atlas">功能图鉴</a>
+      <a href="#themes">配色</a>
+      <a href="#keys">快捷键</a>
+      <a href="#spec">规格</a>
+    </nav>
+    <a class="nav__cta" href="#get">获取</a>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ============ HERO ============ -->
+<section class="hero" id="top">
+  <div class="wrap hero__grid">
+    <div>
+      <p class="eyebrow">Windows 桌面悬浮球 · MIT 开源</p>
+      <h1>
+        <span class="ln">把散落一桌的图标</span>
+        <span class="ln ln--oil">收进一枚安静的球</span>
+      </h1>
+      <p class="hero__sub">
+        42 像素，贴在屏幕边缘。鼠标滑过去，一条横滑面板铺开你常用的应用，
+        点一下就走。不用图标，不占桌面，不打断手上的事。
+      </p>
+      <div class="hero__actions">
+        <a class="btn btn--oil" href="https://github.com/2026heshao/wangyuhe-tools-src/releases/download/launchdeck-v2.2.4/LaunchDeck_v2.2.4.zip" rel="noopener"
+           aria-label="下载 LaunchDeck v2.2.4 发布包，54 MB，zip 压缩格式">
+          <svg class="btn__icn" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4.5 20h15"/>
+          </svg>
+          下载 v2.2.4
+        </a>
+        <a class="btn btn--ghost" href="#atlas">
+          <svg class="btn__icn" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="3"/>
+            <path d="M3 9h18M9 21V9"/>
+          </svg>
+          看功能图鉴
+        </a>
+      </div>
+
+      <div class="spec">
+        <div class="spec__item">
+          <span class="spec__k">浮球直径</span>
+          <span class="spec__v">28 – 72 px</span>
+        </div>
+        <div class="spec__item">
+          <span class="spec__k">面板高度</span>
+          <span class="spec__v">72 px</span>
+        </div>
+        <div class="spec__item">
+          <span class="spec__k">图标边长</span>
+          <span class="spec__v">32 – 42 px</span>
+        </div>
+        <div class="spec__item">
+          <span class="spec__k">全局热键</span>
+          <span class="spec__v">Alt + Space</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 桌面实景：贴边球 + 滑出的横滑面板 -->
+    <div class="stage">
+      <p class="stage__cap">LIVE 形态 · 贴右缘 · 面板向左滑出</p>
+      <svg viewBox="0 0 640 420" role="img"
+           aria-label="示意图：LaunchDeck 悬浮球贴屏幕右缘，悬停后向左滑出 72 像素高的横滑应用面板，面板内为五个应用图标与名称">
+        <defs>
+          <linearGradient id="scr" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#2A2118"/><stop offset="1" stop-color="#14110E"/>
+          </linearGradient>
+          <linearGradient id="panelBg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#3E2C1C" stop-opacity=".96"/>
+            <stop offset="1" stop-color="#2C2016" stop-opacity=".96"/>
+          </linearGradient>
+          <linearGradient id="ballG" x1=".3" y1=".2" x2=".8" y2="1">
+            <stop offset="0" stop-color="#6A5136"/><stop offset="1" stop-color="#2A2118"/>
+          </linearGradient>
+          <radialGradient id="ballGlow" cx=".5" cy=".5" r=".5">
+            <stop offset="0" stop-color="#FFB45A" stop-opacity=".62"/>
+            <stop offset="1" stop-color="#FFB45A" stop-opacity="0"/>
+          </radialGradient>
+          <!-- 面板右侧淡出：暗示横向还有更多项可滚动 -->
+          <linearGradient id="fadeR" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#2C2016" stop-opacity="0"/>
+            <stop offset="1" stop-color="#2C2016" stop-opacity=".97"/>
+          </linearGradient>
+          <linearGradient id="icoA" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#6FA8FF"/><stop offset="1" stop-color="#3B5FD9"/></linearGradient>
+          <linearGradient id="icoB" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#7BD9A0"/><stop offset="1" stop-color="#2E8F5B"/></linearGradient>
+          <linearGradient id="icoC" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#FFCB6B"/><stop offset="1" stop-color="#D98A21"/></linearGradient>
+          <linearGradient id="icoD" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#F58AA6"/><stop offset="1" stop-color="#C2476E"/></linearGradient>
+          <linearGradient id="icoE" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#B69BFF"/><stop offset="1" stop-color="#6E4ED9"/></linearGradient>
+        </defs>
+
+        <!-- 桌面壁纸 -->
+        <rect x="0" y="0" width="640" height="420" rx="16" fill="url(#scr)"/>
+        <ellipse cx="180" cy="90" rx="200" ry="120" fill="#C9705A" opacity=".16"/>
+        <ellipse cx="540" cy="360" rx="220" ry="140" fill="#3F7E78" opacity=".14"/>
+
+        <!-- 面板（左滑出，右缘对齐） -->
+        <g>
+          <rect x="120" y="176" width="452" height="72" rx="12" fill="url(#panelBg)"
+                stroke="#F6CF7A" stroke-opacity=".34"/>
+          <rect x="120" y="176" width="452" height="72" rx="12" fill="none"
+                stroke="#fff" stroke-opacity=".08"/>
+          <!-- 项 -->
+          <g>
+            <!-- 项 1：悬停态高亮 -->
+            <rect x="132" y="184" width="56" height="56" rx="9" fill="#E8A33D" fill-opacity=".24"/>
+            <rect x="146" y="190" width="28" height="28" rx="7" fill="url(#icoA)"/>
+            <text x="160" y="230" fill="#F5EEE2" font-size="10" text-anchor="middle"
+                  font-family="Inter, sans-serif" opacity=".95">浏览器</text>
+            <!-- 项 2 -->
+            <rect x="196" y="192" width="24" height="24" rx="6" fill="url(#icoB)"/>
+            <text x="208" y="230" fill="#CFC3B0" font-size="10" text-anchor="middle"
+                  font-family="Inter, sans-serif">编辑器</text>
+            <!-- 项 3（运行中：右下角指示点） -->
+            <rect x="256" y="192" width="24" height="24" rx="6" fill="url(#icoC)"/>
+            <circle cx="278" cy="214" r="3.4" fill="#FFB85C" stroke="#2C2016" stroke-width="1.4"/>
+            <text x="268" y="230" fill="#CFC3B0" font-size="10" text-anchor="middle"
+                  font-family="Inter, sans-serif">终端</text>
+            <!-- 项 4（鱼眼放大：更大 + 上浮） -->
+            <rect x="314" y="184" width="30" height="30" rx="7" fill="url(#icoD)"/>
+            <text x="329" y="230" fill="#CFC3B0" font-size="9.2" text-anchor="middle"
+                  font-family="Inter, sans-serif" opacity=".46">设计稿</text>
+            <!-- 项 5（目标失效：减淡 + 琥珀角标） -->
+            <g opacity=".48">
+              <rect x="374" y="192" width="24" height="24" rx="6" fill="url(#icoE)"/>
+            </g>
+            <circle cx="396" cy="196" r="6.6" fill="#E28220" stroke="#2C2016" stroke-width="1.3"/>
+            <text x="396" y="199.4" fill="#fff" font-size="8.6" text-anchor="middle"
+                  font-weight="700" font-family="Inter, sans-serif">!</text>
+            <text x="386" y="230" fill="#CFC3B0" font-size="10" text-anchor="middle"
+                  font-family="Inter, sans-serif">笔记</text>
+          </g>
+          <!-- 右侧淡出层：暗示横向还有更多项 -->
+          <rect x="446" y="176" width="126" height="72" rx="12" fill="url(#fadeR)"/>
+        </g>
+
+        <!-- 悬浮球（贴右缘） -->
+        <g>
+          <circle cx="588" cy="212" r="44" fill="url(#ballGlow)"/>
+          <circle cx="588" cy="212" r="21" fill="url(#ballG)"
+                  stroke="#F6CF7A" stroke-opacity=".44" stroke-width="1.2"/>
+          <circle cx="588" cy="212" r="17.5" fill="none" stroke="#fff" stroke-opacity=".1"/>
+          <!-- 四方块图标 -->
+          <g transform="translate(580.5 204.5)">
+            <rect width="6.4" height="6.4" rx="1.7" fill="#FAEBD6" opacity=".96"/>
+            <rect x="8.6" width="6.4" height="6.4" rx="1.7" fill="#FAEBD6" opacity=".8"/>
+            <rect y="8.6" width="6.4" height="6.4" rx="1.7" fill="#FAEBD6" opacity=".8"/>
+            <rect x="8.6" y="8.6" width="6.4" height="6.4" rx="1.7" fill="#FAEBD6" opacity=".58"/>
+          </g>
+        </g>
+
+        <!-- 屏幕边缘线 -->
+        <rect x="616" y="0" width="24" height="420" fill="#000" opacity=".28"/>
+        <path d="M612 130 L612 294" stroke="#F6CF7A" stroke-opacity=".5"
+              stroke-width="2" stroke-linecap="round" stroke-dasharray="5 7"/>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 为什么 ============ -->
+<section class="band" id="why">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <p class="eyebrow">问题与答案</p>
+      <h2 class="h-sec">桌面不缺软件，<em>缺一个顺手的位置</em></h2>
+      <p class="lead">
+        常用的其实就那几个：浏览器、编辑器、终端、聊天工具。可它们要么散在桌面被文件盖住，
+        要么埋在三层开始菜单里。LaunchDeck 只解决这一件事 —— 让它们离你的鼠标只有一次滑动的距离。
+      </p>
+    </div>
+
+    <div class="anchor-grid">
+      <article class="card glass reveal">
+        <div class="card__icn" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="2.4"/></svg>
+        </div>
+        <h3>极小占用</h3>
+        <p>常态只是一枚球。球径 28–72px 可调，闲置时只做极轻的呼吸光影；不需要时按热键或从托盘一键隐藏，桌面立刻干净。</p>
+      </article>
+
+      <article class="card glass reveal">
+        <div class="card__icn" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 12h16"/><path d="m14 6 6 6-6 6"/></svg>
+        </div>
+        <h3>贴边吸附</h3>
+        <p>随手把球拖到任意位置，松手自动吸附最近的左右屏幕边缘，并记住坐标；贴左缘面板向右滑，贴右缘向左滑，永远朝屏幕内侧展开。</p>
+      </article>
+
+      <article class="card glass reveal">
+        <div class="card__icn" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.4"/><path d="M7 12h10"/></svg>
+        </div>
+        <h3>横滑收纳</h3>
+        <p>面板固定 72px 高、宽度自适应（不超过屏宽 60%），只横向滚动、没有纵向滚动条 —— 应用再多也不会糊成一片网格。</p>
+      </article>
+
+      <article class="card glass reveal">
+        <div class="card__icn" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3.5 20 8v5.5c0 4-3.4 6.5-8 7.5-4.6-1-8-3.5-8-7.5V8Z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg>
+        </div>
+        <h3>不猜、不联网</h3>
+        <p>配置就是一个本地 <code>config.json</code>，图标在本地提取并缓存成 PNG。不发请求、不要账号、不收集任何使用数据。</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 怎么用：四步 ============ -->
+<section class="band band--tight" id="how">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <p class="eyebrow">四步上手</p>
+      <h2 class="h-sec">从双击到习惯，<em>用不了一分钟</em></h2>
+    </div>
+    <div class="steps reveal">
+      <div class="step">
+        <div class="step__n">01</div>
+        <h3>球落在屏幕边缘</h3>
+        <p>启动后一枚球贴在屏幕左/右缘垂直居中位置。它常驻最上层，但从不抢焦点。</p>
+        <span class="step__tag">单实例锁 · 重复启动会提示</span>
+      </div>
+      <div class="step">
+        <div class="step__n">02</div>
+        <h3>把软件丢给它</h3>
+        <p>把 <code>.exe</code>、<code>.lnk</code> 快捷方式，甚至 PDF、文件夹、网址直接拖到球或面板上即可添加 —— 名称和图标自动读取。</p>
+        <span class="step__tag">拖入即添加</span>
+      </div>
+      <div class="step">
+        <div class="step__n">03</div>
+        <h3>滑出去，点一下</h3>
+        <p>鼠标移到球上，面板向屏幕内侧滑出；点图标即启动，带一次收缩回弹的确认反馈。移开鼠标自动收回，也可固定常驻。</p>
+        <span class="step__tag">650ms 点击冷却防误连点</span>
+      </div>
+      <div class="step">
+        <div class="step__n">04</div>
+        <h3>按喜好调一遍</h3>
+        <p>右键打开设置：图标大小、球径、面板透明度、动画速度、三套配色、全局热键、鱼眼放大、频率排序，改完即时生效。</p>
+        <span class="step__tag">改动即时保存</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 功能图鉴 1：悬浮球 ============ -->
+<section class="band" id="atlas">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <p class="eyebrow">功能图鉴 · 壹</p>
+      <h2 class="h-sec">一枚球，<em>两种状态</em></h2>
+    </div>
+
+    <div class="atlas">
+      <div class="atlas__art art-frame reveal">
+        <span class="art-frame__badge">尺寸可调 28 – 72px</span>
+        <svg viewBox="0 0 560 300" role="img"
+             aria-label="示意图：悬浮球默认态的圆形底与四方块图标，以及悬停态放大并出现暖色辉光">
+          <defs>
+            <linearGradient id="bg1" x1=".3" y1=".15" x2=".8" y2="1">
+              <stop offset="0" stop-color="#5C4730"/><stop offset="1" stop-color="#241C14"/>
+            </linearGradient>
+            <radialGradient id="gl1" cx=".5" cy=".5" r=".5">
+              <stop offset="0" stop-color="#FFB75C" stop-opacity=".68"/>
+              <stop offset="1" stop-color="#FFB75C" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="srf1" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#3A2C1E"/><stop offset="1" stop-color="#1C1610"/>
+            </linearGradient>
+          </defs>
+
+          <rect width="560" height="300" rx="18" fill="url(#srf1)"/>
+          <path d="M0 0h560v300H0z" fill="none"/>
+
+          <!-- 左：默认态 -->
+          <g transform="translate(88 150)">
+            <text x="0" y="-96" fill="#9C8F7B" font-size="11" text-anchor="middle"
+                  font-family="'JetBrains Mono', monospace" letter-spacing="1.6">DEFAULT</text>
+            <circle r="21" fill="url(#bg1)" stroke="#F6CF7A" stroke-opacity=".3"/>
+            <circle r="17.5" fill="none" stroke="#fff" stroke-opacity=".09"/>
+            <g transform="translate(-7.5 -7.5)">
+              <rect width="6.6" height="6.6" rx="1.8" fill="#E4D7C3" opacity=".96"/>
+              <rect x="8.8" width="6.6" height="6.6" rx="1.8" fill="#E4D7C3" opacity=".82"/>
+              <rect y="8.8" width="6.6" height="6.6" rx="1.8" fill="#E4D7C3" opacity=".82"/>
+              <rect x="8.8" y="8.8" width="6.6" height="6.6" rx="1.8" fill="#E4D7C3" opacity=".6"/>
+            </g>
+            <text x="0" y="62" fill="#CFC3B0" font-size="11.5" text-anchor="middle"
+                  font-family="Inter, sans-serif">静止 · 无边框无发光</text>
+          </g>
+
+          <!-- 分隔线 -->
+          <path d="M280 46 V254" stroke="#F6CF7A" stroke-opacity=".16" stroke-dasharray="4 8"/>
+
+          <!-- 右：悬停态 -->
+          <g transform="translate(430 150)">
+            <text x="0" y="-104" fill="#E8A33D" font-size="11" text-anchor="middle"
+                  font-family="'JetBrains Mono', monospace" letter-spacing="1.6">HOVER</text>
+            <circle r="72" fill="url(#gl1)"/>
+            <circle r="23.1" fill="url(#bg1)" stroke="#F6CF7A" stroke-opacity=".5"/>
+            <circle r="19.2" fill="none" stroke="#fff" stroke-opacity=".14"/>
+            <g transform="translate(-8.2 -8.2)">
+              <rect width="7.2" height="7.2" rx="1.9" fill="#FAEBD6"/>
+              <rect x="9.6" width="7.2" height="7.2" rx="1.9" fill="#FAEBD6" opacity=".86"/>
+              <rect y="9.6" width="7.2" height="7.2" rx="1.9" fill="#FAEBD6" opacity=".86"/>
+              <rect x="9.6" y="9.6" width="7.2" height="7.2" rx="1.9" fill="#FAEBD6" opacity=".64"/>
+            </g>
+            <text x="0" y="72" fill="#F6CF7A" font-size="11.5" text-anchor="middle"
+                  font-family="Inter, sans-serif">悬停 · 放大 1.1× + 暖色辉光</text>
+          </g>
+        </svg>
+      </div>
+
+      <ul class="feat-list reveal">
+        <li>
+          <span class="tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="m2 6.4 2.6 2.6L10 3.4"/></svg></span>
+          <div><strong>静置时几乎不存在</strong>
+          <span>软投影柔和、无发光无边框，只在鼠标靠近时微微放大 —— 不干扰也不会被忽略。</span></div>
+        </li>
+        <li>
+          <span class="tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="m2 6.4 2.6 2.6L10 3.4"/></svg></span>
+          <div><strong>呼吸光影可关</strong>
+          <span>闲置时 2.8 秒一轮的极缓呼吸，呼吸与悬停两套动画严格互斥，不会为了好看而掉帧；不想要就在设置里关掉。</span></div>
+        </li>
+        <li>
+          <span class="tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="m2 6.4 2.6 2.6L10 3.4"/></svg></span>
+          <div><strong>整颗球可换贴图</strong>
+          <span>支持 PNG / JPG / BMP / WebP，任意比例自动居中裁成圆形。建议方形图 ≥ 256×256，选图后自动备份，原文件可删。</span></div>
+        </li>
+        <li>
+          <span class="tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="m2 6.4 2.6 2.6L10 3.4"/></svg></span>
+          <div><strong>拖不动也丢不了</strong>
+          <span>拖动结束自动吸附到最近的左右屏幕边缘，<code>ball_x / ball_y</code> 记进配置，重启后还在原地。</span></div>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 功能图鉴 2：横滑面板 ============ -->
+<section class="band band--tight">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <p class="eyebrow">功能图鉴 · 贰</p>
+      <h2 class="h-sec">面板里的<em>四个小细节</em></h2>
+      <p class="lead">设计上刻意克制：每项就是「图标 + 一行名字」，没有托盘区、没有分组树、没有拖不动的网格。</p>
+    </div>
+
+    <div class="atlas atlas--flip">
+      <div class="atlas__art art-frame reveal">
+        <span class="art-frame__badge">72px 高 · 横向滚动</span>
+        <svg viewBox="0 0 600 320" role="img"
+             aria-label="示意图：面板中的四个交互细节，分别是悬停高亮、鱼眼放大、运行中指示点、目标失效角标">
+          <defs>
+            <linearGradient id="pbg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#3B2A1C" stop-opacity=".95"/>
+              <stop offset="1" stop-color="#281E14" stop-opacity=".95"/>
+            </linearGradient>
+            <linearGradient id="d1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#6FA8FF"/><stop offset="1" stop-color="#3B5FD9"/></linearGradient>
+            <linearGradient id="d2" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#7BD9A0"/><stop offset="1" stop-color="#2E8F5B"/></linearGradient>
+            <linearGradient id="d3" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#FFCB6B"/><stop offset="1" stop-color="#D98A21"/></linearGradient>
+            <linearGradient id="d4" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#B69BFF"/><stop offset="1" stop-color="#6E4ED9"/></linearGradient>
+          </defs>
+          <rect width="600" height="320" rx="18" fill="#231A12"/>
+
+          <!-- 面板本体 -->
+          <rect x="42" y="96" width="516" height="128" rx="14" fill="url(#pbg)"
+                stroke="#F6CF7A" stroke-opacity=".26"/>
+
+          <!-- 项 1：悬停高亮 -->
+          <rect x="56" y="110" width="112" height="100" rx="10" fill="#E8A33D" fill-opacity=".2"/>
+          <rect x="94" y="122" width="36" height="36" rx="9" fill="url(#d1)"/>
+          <text x="112" y="180" fill="#F5EEE2" font-size="12" text-anchor="middle"
+                font-family="Inter, sans-serif">悬停高亮</text>
+
+          <!-- 项 2：鱼眼放大（更大 + 上浮） -->
+          <rect x="176" y="114" width="40" height="40" rx="10" fill="url(#d2)"/>
+          <text x="196" y="180" fill="#8A8D96" font-size="11" text-anchor="middle"
+                font-family="Inter, sans-serif" opacity=".62">鱼眼放大</text>
+
+          <!-- 项 3：运行中指示 -->
+          <rect x="256" y="122" width="36" height="36" rx="9" fill="url(#d3)"/>
+          <circle cx="286" cy="152" r="5" fill="#FFB85C" stroke="#281E14" stroke-width="2"/>
+          <text x="274" y="180" fill="#8A8D96" font-size="11" text-anchor="middle"
+                font-family="Inter, sans-serif" opacity=".62">运行中</text>
+
+          <!-- 项 4：失效角标 -->
+          <g opacity=".5">
+            <rect x="342" y="122" width="36" height="36" rx="9" fill="url(#d4)"/>
+          </g>
+          <circle cx="374" cy="126" r="9" fill="#E28220" stroke="#281E14" stroke-width="1.6"/>
+          <text x="374" y="130.5" fill="#fff" font-size="11.5" text-anchor="middle"
+                font-weight="700" font-family="Inter, sans-serif">!</text>
+          <text x="360" y="180" fill="#8A8D96" font-size="11" text-anchor="middle"
+                font-family="Inter, sans-serif" opacity=".62">目标丢失</text>
+
+          <!-- 项 5-6：更多项 + 右侧渐隐 -->
+          <rect x="428" y="122" width="36" height="36" rx="9" fill="#5A4A38" opacity=".5"/>
+          <rect x="476" y="122" width="36" height="36" rx="9" fill="#5A4A38" opacity=".3"/>
+
+          <!-- 说明引线 -->
+          <g stroke="#F6CF7A" stroke-opacity=".34" stroke-width="1" fill="none">
+            <path d="M112 210 V240 H196"/>
+            <path d="M274 210 V252 H112"/>
+          </g>
+          <text x="300" y="286" fill="#9C8F7B" font-size="11.5" text-anchor="middle"
+                font-family="Inter, sans-serif">滚轮即横向滚动 · 每项点击有 650ms 冷却，避免重复启动</text>
+        </svg>
+      </div>
+
+      <ul class="feat-list reveal">
+        <li>
+          <span class="tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="m2 6.4 2.6 2.6L10 3.4"/></svg></span>
+          <div><strong>悬停高亮渐入</strong>
+          <span>120ms 渐变插值而非硬切；启动时图标收缩回弹 + 一圈波纹扩散，明确告诉你「点到了」。</span></div>
+        </li>
+        <li>
+          <span class="tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="m2 6.4 2.6 2.6L10 3.4"/></svg></span>
+          <div><strong>鱼眼放大（可关）</strong>
+          <span>鼠标在面板上移动时，附近 110px 内的图标随之放大 —— RocketDock 式的顺手感，逐帧收敛，标签自动淡出让位。</span></div>
+        </li>
+        <li>
+          <span class="tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="m2 6.4 2.6 2.6L10 3.4"/></svg></span>
+          <div><strong>运行中指示点</strong>
+          <span>每 2 秒检查一次进程，已在运行的应用图标右下角亮起小圆点；点击这类应用会把它切到前台，而不是再开一个。</span></div>
+        </li>
+        <li>
+          <span class="tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="m2 6.4 2.6 2.6L10 3.4"/></svg></span>
+          <div><strong>失效条目标记</strong>
+          <span>目标文件被删除或移动后，图标自动减淡并打上琥珀色 <code>!</code> 角标，悬停提示还能显示原路径，不必再逐个点开试。</span></div>
+        </li>
+        <li>
+          <span class="tick" aria-hidden="true"><svg viewBox="0 0 12 12"><path d="m2 6.4 2.6 2.6L10 3.4"/></svg></span>
+          <div><strong>面板内直接拖拽排序</strong>
+          <span>按住图标横向拖动即可重排顺序，不用回去翻设置；若开启频率排序，则按「启动次数 → 最近使用」自动排列。</span></div>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 配色三选一 ============ -->
+<section class="band" id="themes">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <p class="eyebrow">配色</p>
+      <h2 class="h-sec">三套肤色，<em>点一下换一身</em></h2>
+      <p class="lead">面板与球体整体换肤，不做细碎的自定义项。下面是三套实际配色的近似还原（取自源码主题表），点选试试。</p>
+    </div>
+
+    <div class="themes reveal" role="group" aria-label="配色主题预览">
+      <button class="theme" data-theme="dark" aria-pressed="true">
+        <div class="theme__swatch" style="background:linear-gradient(150deg,#232028,#12131A)">
+          <span class="b b--a" style="background:#24262D"></span>
+          <span class="b b--b" style="background:#2C2F38"></span>
+          <span class="b b--c" style="background:#94B4E8"></span>
+        </div>
+        <span class="theme__name"><span class="dot" style="background:#4C96FF"></span>暗色 Dark</span>
+        <p class="theme__hint">夜间与深色壁纸下最安静，冷蓝辉光、绿色运行点。</p>
+        <p class="theme__hex">球 #24262D · 悬停 #2C2F38 · 面板 rgb(16,17,21)</p>
+      </button>
+
+      <button class="theme" data-theme="warm" aria-pressed="false">
+        <div class="theme__swatch" style="background:linear-gradient(150deg,#4A2F18,#2A1C10)">
+          <span class="b b--a" style="background:#52341C"></span>
+          <span class="b b--b" style="background:#664022"></span>
+          <span class="b b--c" style="background:#FFB45A"></span>
+        </div>
+        <span class="theme__name"><span class="dot" style="background:#FFA840"></span>暖色 Warm</span>
+        <p class="theme__hint">琥珀棕球体配暖橙辉光，和暖调壁纸、木质桌面最搭。</p>
+        <p class="theme__hex">球 #52341C · 悬停 #664022 · 面板 rgb(66,42,22)</p>
+      </button>
+
+      <button class="theme" data-theme="ice" aria-pressed="false">
+        <div class="theme__swatch" style="background:linear-gradient(150deg,#1B3E5C,#0F2130)">
+          <span class="b b--a" style="background:#1A3E5E"></span>
+          <span class="b b--b" style="background:#224C70"></span>
+          <span class="b b--c" style="background:#78C8FF"></span>
+        </div>
+        <span class="theme__name"><span class="dot" style="background:#6EC8FF"></span>冰蓝 Ice</span>
+        <p class="theme__hint">深海蓝球体配冰蓝辉光，清爽冷静，白天办公最舒服。</p>
+        <p class="theme__hex">球 #1A3E5E · 悬停 #224C70 · 面板 rgb(18,60,96)</p>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 快捷键 ============ -->
+<section class="band band--tight" id="keys">
+  <div class="wrap keys">
+    <div class="reveal">
+      <p class="eyebrow">常驻入口</p>
+      <h2 class="h-sec">三条路，<em>都能把它叫回来</em></h2>
+      <p class="lead">
+        悬浮球藏起来之后不会「消失不见」：热键、托盘、右键菜单三条入口行为完全一致，
+        你永远不会找不到它。
+      </p>
+      <div class="keypad" aria-hidden="true">
+        <span class="kbd" data-key="alt">Alt</span>
+        <span class="kbd__plus">+</span>
+        <span class="kbd" data-key="space">Space</span>
+      </div>
+      <p class="key-note">
+        默认 <code>Alt + Space</code> 显示 / 隐藏悬浮球，可在设置里录制任意组合键（需含 Ctrl / Alt / Shift / Win 修饰键）。
+        热键由独立工作线程监听，按住不重复触发。<br>
+        提示：<code>Alt + Space</code> 会全局屏蔽系统的窗口控制菜单，如常用可改成 <code>Ctrl + Alt + L</code>。
+      </p>
+    </div>
+
+    <div class="demo-screen reveal">
+      <svg viewBox="0 0 480 260" role="img"
+           aria-label="演示示意图：按下 Alt 加空格后，贴边的悬浮球与横滑面板一起淡出隐藏">
+        <defs>
+          <linearGradient id="dscr" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#2B2118"/><stop offset="1" stop-color="#151210"/>
+          </linearGradient>
+        </defs>
+        <rect width="480" height="260" rx="14" fill="url(#dscr)"/>
+        <ellipse cx="120" cy="60" rx="170" ry="100" fill="#C9705A" opacity=".14"/>
+
+        <!-- 隐藏前 -->
+        <g opacity=".46">
+          <rect x="74" y="92" width="300" height="54" rx="10" fill="#3A2A1C"
+                stroke="#F6CF7A" stroke-opacity=".3"/>
+          <rect x="88" y="103" width="32" height="32" rx="8" fill="#4C6FBF"/>
+          <text x="104" y="164" fill="#9C8F7B" font-size="10" text-anchor="middle"
+                font-family="Inter, sans-serif">显示中</text>
+        </g>
+
+        <!-- 热键印章 -->
+        <g transform="translate(240 162)">
+          <rect x="-58" y="-18" width="116" height="36" rx="18" fill="#F6CF7A" fill-opacity=".16"
+                stroke="#F6CF7A" stroke-opacity=".5"/>
+          <text x="0" y="5" fill="#F6CF7A" font-size="13" text-anchor="middle"
+                font-weight="600" font-family="'JetBrains Mono', monospace">ALT + SPACE</text>
+        </g>
+
+        <!-- 箭头 -->
+        <path d="M240 198 V222" stroke="#F6CF7A" stroke-opacity=".5" stroke-width="1.6"/>
+        <path d="m234 216 6 7 6-7" fill="#F6CF7A" fill-opacity=".6"/>
+
+        <!-- 隐藏后 -->
+        <g transform="translate(240 240)">
+          <circle r="9" fill="none" stroke="#9C8F7B" stroke-dasharray="3 3"/>
+          <text x="22" y="4" fill="#9C8F7B" font-size="10.5"
+                font-family="Inter, sans-serif">已隐藏 · 托盘中随时找回</text>
+        </g>
+      </svg>
+      <p class="demo-hint">热键 · 托盘左键 · 右键菜单「设置 / 退出」</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 规格表 ============ -->
+<section class="band" id="spec">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <p class="eyebrow">规格与设置项</p>
+      <h2 class="h-sec">所有可调的，<em>都列在这儿</em></h2>
+      <p class="lead">下列数值与范围均取自 v2 源码的设置项定义，改完即时保存并同步到面板，不需要重启。</p>
+    </div>
+
+    <div class="glass reveal" style="padding:clamp(18px,2.6vw,30px)">
+      <table class="spec-table">
+        <caption>设置项与取值范围</caption>
+        <thead>
+          <tr><th scope="col">设置项</th><th scope="col">作用</th><th scope="col">范围 / 默认</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">图标大小</th><td>面板中每个应用图标的边长</td><td>32 – 42 px · 40</td></tr>
+          <tr><th scope="row">悬浮球大小</th><td>贴边球体直径</td><td>28 – 72 px · 42</td></tr>
+          <tr><th scope="row">面板透明度</th><td>面板背景的不透明度</td><td>50% – 100% · 87%</td></tr>
+          <tr><th scope="row">动画速度</th><td>全局动效倍率，统一换算所有动画时长</td><td>0.5× – 2.0× · 1.0×</td></tr>
+          <tr><th scope="row">面板常驻显示</th><td>打开后不随鼠标移开自动收回</td><td>开关</td></tr>
+          <tr><th scope="row">呼吸光影</th><td>闲置呼吸动画与球体辉光的总开关</td><td>开关</td></tr>
+          <tr><th scope="row">图标鱼眼放大</th><td>悬停邻域图标放大（RocketDock 式）</td><td>开关</td></tr>
+          <tr><th scope="row">使用频率智能排序</th><td>按启动次数与最近启动时间自动排序</td><td>开关</td></tr>
+          <tr><th scope="row">开机自动启动</th><td>写入系统启动项，状态实时读注册表</td><td>开关</td></tr>
+          <tr><th scope="row">面板配色</th><td>暗色 / 暖色 / 冰蓝 整体换肤</td><td>三选一 · 暗色</td></tr>
+          <tr><th scope="row">悬浮球外观</th><td>自定义图片替换球体，或恢复矢量绘制默认球</td><td>图片 / 默认</td></tr>
+          <tr><th scope="row">全局快捷键</th><td>显示 / 隐藏悬浮球</td><td>组合键 · Alt+Space</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note reveal" style="margin-top:24px">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5h.01"/></svg>
+      <p>
+        <strong>关于「智能排序」的一个取舍：</strong>开启后面板顺序会按使用频率自动重排，
+        <em>手动拖拽排序会被覆盖</em>。如果你习惯固定位置，建议保持关闭 —— 这两件事本身是互斥的，
+        源码里也做了明确说明。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 路线图（坦诚区） ============ -->
+<section class="band band--tight">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <p class="eyebrow">现状与路线图</p>
+      <h2 class="h-sec">已经做完的，和<em>还没做的</em></h2>
+      <p class="lead">不想把「计划中」写成「已支持」。下面左栏是 v2 已实现并可用的能力，右栏是尚未落地、只在讨论中的方向。</p>
+    </div>
+
+    <div class="road reveal">
+      <div class="road__col glass">
+        <div class="road__head">
+          <h3>v2.2.4 已实现</h3>
+          <span class="chip chip--done">AVAILABLE</span>
+        </div>
+        <ul>
+          <li>贴边悬浮球 + 自动吸附最近左右边缘</li>
+          <li>悬停滑出横滑面板，宽度自适应、只横向滚动</li>
+          <li>拖入 .exe / .lnk / 文档 / 文件夹 / 网址即添加</li>
+          <li>面板内直接拖拽排序；右键菜单增删改</li>
+          <li>自定义图标（PNG / ICO，任意尺寸自适应）</li>
+          <li>球径、图标大小、面板透明度、动画速度可调</li>
+          <li>三套面板配色，球体与面板一起换肤</li>
+          <li>悬浮球自定义贴图，圆形自动裁剪</li>
+          <li>全局热键（可录制）显示 / 隐藏悬浮球</li>
+          <li>系统托盘常驻，左键切换显隐</li>
+          <li>运行中指示点；点击已运行应用切到前台</li>
+          <li>失效条目标记（减淡 + 角标 + 路径提示）</li>
+          <li>开机自启开关；单实例锁；崩溃日志兜底</li>
+          <li>图标磁盘缓存与孤儿缓存自动清理</li>
+        </ul>
+      </div>
+
+      <div class="road__col glass road__col--plan">
+        <div class="road__head">
+          <h3>讨论中的方向</h3>
+          <span class="chip chip--plan">PLANNED</span>
+        </div>
+        <ul>
+          <li>面板内应用分组 / 多页翻页</li>
+          <li>多显示器下的按屏独立球位与面板</li>
+          <li>球体悬停展开的方向可选（上 / 下 / 内侧）</li>
+          <li>应用启动参数与工作目录配置</li>
+          <li>配置导入导出与一键备份</li>
+          <li>面板滚动惯性曲线更接近系统手感</li>
+        </ul>
+        <p style="font-size:13px;color:var(--text-mute);margin:14px 0 0;line-height:1.7">
+          右侧均<strong style="color:var(--text-soft)">尚未实现</strong>，仅代表讨论方向，不代表承诺的交付时间。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA ============ -->
+<section class="band" id="get">
+  <div class="wrap">
+    <div class="cta reveal">
+      <p class="eyebrow" style="justify-content:center">获取与安装</p>
+      <h2>给桌面留一枚安静的球</h2>
+      <p>
+        LaunchDeck 是 <strong>WangYuHe 工具箱</strong> 的一员，采用 MIT 许可证开源。
+        源码在 GitHub 统一源码仓库，安装包走发布包分发，不塞进仓库历史。
+      </p>
+      <div class="cta__row">
+        <!-- 下载按钮：指向同目录下的发布包，相对路径，换服务器/换域名都不用改 -->
+        <a class="btn btn--oil" href="https://github.com/2026heshao/wangyuhe-tools-src/releases/download/launchdeck-v2.2.4/LaunchDeck_v2.2.4.zip" rel="noopener"
+           aria-label="下载 LaunchDeck v2.2.4 发布包，54 MB，zip 压缩格式">
+          <svg class="btn__icn" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4.5 20h15"/>
+          </svg>
+          下载 v2.2.4（<span class="dl-size">54</span> MB）
+        </a>
+        <a class="btn btn--ghost" href="https://github.com/2026heshao/wangyuhe-tools-src" rel="noopener">
+          <svg class="btn__icn" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 18c-4.5 1.5-4.5-2.5-6-3"/><path d="M15 21v-3.6a3 3 0 0 0-.9-2.4c3-.3 6.1-1.5 6.1-6.7a5.2 5.2 0 0 0-1.4-3.6 4.8 4.8 0 0 0-.1-3.6s-1.1-.3-3.6 1.4a12.4 12.4 0 0 0-6.4 0C6.2.8 5.1 1.1 5.1 1.1a4.8 4.8 0 0 0-.1 3.6A5.2 5.2 0 0 0 3.6 8.3c0 5.2 3.1 6.4 6.1 6.7a3 3 0 0 0-.9 2.4V21"/>
+          </svg>
+          查看源码
+        </a>
+      </div>
+
+      <!-- 安装说明：解压即用，不写注册表、不装服务 -->
+      <div class="install">
+        <div class="install__step">
+          <span class="install__n">1</span>
+          <div><strong>解压</strong><span>把 zip 解压到任意文件夹，建议放非系统盘</span></div>
+        </div>
+        <div class="install__step">
+          <span class="install__n">2</span>
+          <div><strong>运行</strong><span>双击 <code>LaunchDeck\LaunchDeck.exe</code></span></div>
+        </div>
+        <div class="install__step">
+          <span class="install__n">3</span>
+          <div><strong>拖入</strong><span>把常用软件的快捷方式拖到球上即可添加</span></div>
+        </div>
+      </div>
+
+      <p class="cta__note">
+        绿色免安装：不写注册表（除「开机自启」开关）、不常驻后台服务，删掉文件夹即卸载干净。
+        配置与图标缓存都在程序目录内，换机器整包拷走即可。
+      </p>
+      <p class="cta__meta">MIT LICENSE © 2026 WANGYUHE · WINDOWS · PYTHON 3.10+ / PYQT6</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 页脚 ============ -->
+<footer class="foot">
+  <div class="wrap foot__in">
+    <p style="margin:0">
+      LaunchDeck 专属宣传页 · 本页为产品介绍，非应用本体
+    </p>
+    <nav class="foot__links" aria-label="外部链接">
+      <a href="https://github.com/2026heshao/wangyuhe-tools-src" rel="noopener">源码仓库</a>
+      <a href="https://github.com/2026heshao/wangyuhe-tools-src/releases" rel="noopener">GitHub Releases</a>
+      <a href="https://2026heshao.github.io/wangyuhe-tools/" rel="noopener">WangYuHe 工具箱</a>
+      <a href="https://github.com/2026heshao/wangyuhe-tools-src/blob/main/LICENSE" rel="noopener">MIT 许可证</a>
+    </nav>
+  </div>
+</footer>
+
+</main>
+</div>
+
+<p class="colophon">
+  <span aria-hidden="true">◆</span>
+  不是启动器里功能最多的那个，是想让你一直留着、忘了它存在的那个。
+</p>
+
+<script>
+/* ==========================================================================
+   交互脚本（无依赖）
+   原则：全部动效遵守 prefers-reduced-motion；所有演示均可跳过。
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  document.body.classList.remove('no-js');
+
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- 1. 滚动揭示 ---------- */
+  var reveals = document.querySelectorAll('.reveal');
+  if (reduce || !('IntersectionObserver' in window)) {
+    reveals.forEach(function (el) { el.classList.add('is-in'); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) {
+          en.target.classList.add('is-in');
+          io.unobserve(en.target);
+        }
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+    reveals.forEach(function (el) { io.observe(el); });
+  }
+
+  /* ---------- 2. 配色三选一 ---------- */
+  var themes = document.querySelectorAll('.theme');
+  themes.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      themes.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b === btn));
+      });
+      var dot = btn.querySelector('.dot');
+      if (dot) {
+        document.documentElement.style.setProperty('--amber', dot.style.background);
+      }
+    });
+  });
+
+  /* ---------- 3. 热键演示：按下 Alt+Space 的键帽反馈 ---------- */
+  var keycaps = document.querySelectorAll('.kbd[data-key]');
+  var kAlt = document.querySelector('.kbd[data-key="alt"]');
+  var kSpace = document.querySelector('.kbd[data-key="space"]');
+  var timers = [];
+
+  function press() {
+    timers.forEach(clearTimeout);
+    timers = [];
+    [kAlt, kSpace].forEach(function (k, i) {
+      if (!k) return;
+      timers.push(setTimeout(function () { k.classList.add('is-down'); }, i * 70));
+      timers.push(setTimeout(function () { k.classList.remove('is-down'); }, 620 + i * 70));
+    });
+  }
+
+  keycaps.forEach(function (k) {
+    k.addEventListener('click', press);
+    k.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); press(); }
+    });
+    k.setAttribute('tabindex', '0');
+    k.setAttribute('role', 'button');
+    k.setAttribute('aria-label', '演示按下 ' + k.textContent + ' 键');
+  });
+
+  // 进入视口时自动演示一次
+  if (!reduce && 'IntersectionObserver' in window && kAlt) {
+    var ho = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) { press(); ho.disconnect(); }
+      });
+    }, { threshold: 0.5 });
+    ho.observe(kAlt);
+  }
+
+  /* ---------- 4. 卡片指针微光（仅精确指针设备） ---------- */
+  if (!reduce && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    document.querySelectorAll('.card.glass').forEach(function (card) {
+      card.addEventListener('pointermove', function (e) {
+        var r = card.getBoundingClientRect();
+        var x = ((e.clientX - r.left) / r.width) * 100;
+        var y = ((e.clientY - r.top) / r.height) * 100;
+        card.style.background =
+          'radial-gradient(420px circle at ' + x + '% ' + y + '%,' +
+          'rgba(246,207,122,.10),transparent 62%), var(--glass)';
+      });
+      card.addEventListener('pointerleave', function () {
+        card.style.background = '';
+      });
+    });
+  }
+})();
+</script>
+</body>
+</html>
