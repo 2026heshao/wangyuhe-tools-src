@@ -21,7 +21,7 @@
 设计要点：
   1. AppLauncherPage 继承 QWidget，浏览页面内卡片只读（无右键菜单）；
      页面顶部提供【管理软件列表】按钮唤起 AppManageDialog 完成增删改
-  2. 卡片尺寸滑动条位于主窗口全局设置页，通过 apply_card_size() 实时刷新本页
+  2. 卡片尺寸步进器位于主窗口全局设置页，通过 apply_card_size() 实时刷新本页
   3. AppManageDialog 继承 QDialog，管理结束发射 apps_changed 刷新导航页
   4. 软件列表数据存放在宿主已有 config.json 的根节点 "apps" 数组中，
      复用宿主的 ConfigManager 读写，禁止新建第二个 json 文件
@@ -57,6 +57,7 @@ from PyQt6.QtCore import Qt, QSize, QFileInfo, pyqtSignal
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QPixmapCache
 
 from src.theme import get_main_window_qss, get_colors
+from src.constants import DEFAULT_THEME
 
 
 # ====================================================================
@@ -376,13 +377,13 @@ class AppLauncherPage(QWidget):
 
     - 顶部工具栏：标题 + 计数 + 【管理软件列表】按钮
       （管理按钮唤起 AppManageDialog 完成新增/编辑/删除，保存后立即刷新本页卡片）
-    - 设置栏：自动回到主页复选框（卡片尺寸滑动条已迁移至主窗口设置页）
+    - 设置栏：自动回到主页复选框（卡片尺寸调节已迁移至主窗口设置页）
     - 滚动区域：卡片网格，列数随页面宽度自适应
     - 卡片唯一交互：左键点击启动软件（无右键菜单）
     - 启动成功后若开启了"自动回到主页面"，发射 request_switch_to_home 信号
 
     对外接口：
-      - apply_card_size(value)  —— 供主窗口设置页的尺寸滑动条实时调用
+      - apply_card_size(value)  —— 供主窗口设置页的尺寸步进器实时调用
 
     config 依赖：
       - apps:           软件列表
@@ -400,7 +401,7 @@ class AppLauncherPage(QWidget):
     _CARD_SIZE_MIN = 60
     _CARD_SIZE_MAX = 140
 
-    def __init__(self, config_manager, parent=None, theme: str = "light"):
+    def __init__(self, config_manager, parent=None, theme: str = DEFAULT_THEME):
         super().__init__(parent)
         self._config_manager = config_manager
         self._theme = theme
@@ -487,10 +488,10 @@ class AppLauncherPage(QWidget):
         """应用主题 QSS + 卡片/页面专用样式。"""
         qss = get_main_window_qss(self._theme)
         colors = get_colors(self._theme)
-        bg = colors.get("bg", "#F8F9FA")
         card_extra = f"""
         QWidget#gridContainer {{
-            background-color: {bg};
+            /* 不再垫实色面板：与其他页面一致，卡片直接浮在玻璃底上 */
+            background-color: transparent;
         }}
         QScrollArea {{
             background-color: transparent; border: none;
@@ -702,7 +703,7 @@ class AppManageDialog(QDialog):
     # 软件列表发生变更时发射（新增/编辑/删除后）
     apps_changed = pyqtSignal()
 
-    def __init__(self, config_manager, parent=None, theme: str = "light"):
+    def __init__(self, config_manager, parent=None, theme: str = DEFAULT_THEME):
         super().__init__(parent)
         self._config_manager = config_manager
         self._theme = theme
@@ -884,7 +885,7 @@ class AppEditDialog(QDialog):
 
     _ICON_PREVIEW_SIZE = 64  # 图标预览区边长（像素）
 
-    def __init__(self, app_data=None, parent=None, theme: str = "light"):
+    def __init__(self, app_data=None, parent=None, theme: str = DEFAULT_THEME):
         super().__init__(parent)
         # 原始数据副本：新增时为空模板，编辑时为已有 app 数据。
         # 保留 enable / launch_args 等本阶段弹窗不暴露的字段。

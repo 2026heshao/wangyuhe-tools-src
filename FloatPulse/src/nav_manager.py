@@ -41,6 +41,8 @@
 import os
 import json
 
+from src.json_store import load_records
+
 
 # ====================================================================
 # 站点数据类
@@ -126,30 +128,13 @@ class NavManager:
 
     # ---------------- 持久化 ----------------
     def _load(self):
-        """从磁盘加载导航数据。文件缺失或损坏 → 初始化空数据"""
-        if not os.path.exists(self._json_path):
-            self._groups = []
-            self._next_id = 1
-            return
-
-        try:
-            with open(self._json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, dict):
-                raise ValueError("Invalid json structure: expected dict")
-            groups_data = data.get("groups", [])
-            self._groups = [NavGroup.from_dict(g) for g in groups_data if isinstance(g, dict)]
-            self._next_id = data.get("next_id", 1)
-            # 修正 next_id
-            max_id = self._next_id
-            for g in self._groups:
-                for s in g.sites:
-                    max_id = max(max_id, s.nav_id + 1)
-            self._next_id = max(self._next_id, max_id)
-            self._next_id = max(self._next_id, 1)
-        except Exception:
-            self._groups = []
-            self._next_id = 1
+        """从磁盘加载导航数据（骨架见 json_store.load_records）。文件缺失或损坏 → 初始化空数据"""
+        self._groups, self._next_id = load_records(
+            self._json_path, "groups", NavGroup.from_dict,
+            # nav_id 在嵌套的 sites 里，next_id 需遍历全部站点后取值
+            min_next_id=lambda gs: max(
+                [0] + [s.nav_id + 1 for g in gs for s in g.sites]),
+        )
 
     def _save(self):
         """统一保存：原子写入"""
@@ -257,6 +242,37 @@ class NavManager:
             s = group.sites.pop(from_index)
             group.sites.insert(to_index, s)
             self._save()
+
+    def reorder_sites_flat(self, ordered_ids) -> bool:
+        """按给定的 nav_id 先后顺序重排全部站点，并落盘。
+
+        用途：网址导航面板是「平铺展示所有站点」的视图，用户拖拽行以后
+        需要把新的先后顺序写回数据层，否则一次 refresh() 就会复位。
+
+        实现约定：**保持各分组的站点数量（槽位）不变**，把新顺序依次回填。
+        例如原分组 A 有 2 个、B 有 3 个，新顺序 [b1,a1,a2,b2,b3] 会回填成
+        A=[b1,a1]、B=[a2,b2,b3]，这样跨分组拖拽也不会丢站点。
+
+        返回 True 表示已落盘；顺序不完整（与当前站点数不匹配）时返回 False，
+        不做任何改动，避免因数据变化导致站点丢失。
+        """
+        slots = [len(g.sites) for g in self._groups]
+        total = sum(slots)
+        if total == 0:
+            return False
+        id_map = {}
+        for g in self._groups:
+            for s in g.sites:
+                id_map[s.nav_id] = s
+        ordered = [id_map[i] for i in ordered_ids if i in id_map]
+        if len(ordered) != total:
+            return False
+        pos = 0
+        for g, n in zip(self._groups, slots):
+            g.sites = ordered[pos:pos + n]
+            pos += n
+        self._save()
+        return True
 
     def get_all_sites(self):
         """返回所有分组的所有站点（扁平列表，用于小卡片展示）"""

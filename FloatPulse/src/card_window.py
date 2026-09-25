@@ -33,24 +33,40 @@ Tab 列表（数字序号）：
 import html
 import os
 import random
+from urllib.parse import urlparse
 
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QMenu, QToolButton,
     QStackedWidget, QListWidget, QListWidgetItem, QLineEdit, QDateEdit,
-    QDialog, QDialogButtonBox, QFormLayout, QTextEdit, QScrollArea,
+    QDialog, QFormLayout, QTextEdit, QScrollArea,
     QFrame, QSizePolicy, QGridLayout, QSystemTrayIcon, QApplication,
 )
-from PyQt6.QtCore import Qt, QTimer, QDate, QPoint, QSize, pyqtSignal, QVariantAnimation, QEasingCurve, QRectF, QMimeData, QEvent
-from PyQt6.QtGui import QColor, QAction, QDesktopServices, QPainter, QBrush, QPainterPath, QPixmap, QFontMetrics, QFont, QIcon, QDrag
+from PyQt6.QtCore import (
+    Qt, QTimer, QDate, QPoint, QRect, QSize, pyqtSignal, QVariantAnimation,
+    QEasingCurve, QPropertyAnimation, QRectF, QMimeData, QEvent,
+)
+from PyQt6.QtGui import QColor, QAction, QDesktopServices, QPainter, QPixmap, QFontMetrics, QFont, QIcon, QDrag, QImageReader
 from PyQt6.QtCore import QUrl
 
-from src.task_manager import TaskManager
+from src.glass_dialog import make_dialog_buttons
+from src.task_manager import (
+    TaskManager, task_state, format_relative_deadline, group_title,
+    KIND_ROW, KIND_HEADER,
+)
+from src.task_delegate import (
+    TaskItemDelegate, KIND_ROLE, ROLE_TITLE, ROLE_REL, ROLE_STATE, ROLE_DONE,
+)
+from src.controls import UndoBar
 from src.note_manager import NoteManager
 from src.nav_manager import NavManager
-from src.theme import get_card_window_qss, get_menu_qss
+from src.theme import get_card_window_qss, get_menu_qss, get_colors
+from src.glass import GlassPanel, NavIndicator, draw_soft_shadow
 from src.app_paths import get_screen_geometry
-from src.constants import NOTE_AUTOSAVE_INTERVAL_MS
+from src.constants import (
+    NOTE_AUTOSAVE_INTERVAL_MS, DEFAULT_THEME, CHECK_ANIM_MS,
+)
+from datetime import date as _date
 
 
 # Tab 定义（纯图标，无数字）
@@ -72,40 +88,75 @@ _TAB_INDICATOR_W = 3        # 选中竖条指示器宽度
 _TAB_INDICATOR_H = 24       # 选中竖条指示器高度
 
 
+def _domain_of_url(url: str) -> str:
+    """从 URL 提取展示用域名：去 scheme、去 www.、去端口/路径。
+    解析失败或无 host 时回退为去掉 scheme 的原始串。
+    """
+    raw = (url or "").strip()
+    try:
+        host = urlparse(raw).hostname or ""
+    except Exception:
+        host = ""
+    host = host.strip()
+    if host.startswith("www."):
+        host = host[4:]
+    if host:
+        return host
+    # 回退：手动去掉 scheme:// 后取路径首段
+    stripped = raw.split("://", 1)[-1]
+    return stripped.split("/", 1)[0] or raw
+
+
 # ====================================================================
 # 选中 Tab 指示器（圆角竖条，通过 move 驱动滑动）
 # ====================================================================
-class _TabIndicator(QWidget):
-    """左侧选中指示器：3px 宽圆角竖条"""
+class _TabIndicator(NavIndicator):
+    """左侧选中指示器：3px 宽圆角竖条（复用通用的 NavIndicator）。
+
+    保留 set_indicator_y / get_indicator_y 两个旧接口，避免改动调用点。
+    """
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self._color = QColor(91, 192, 190)   # 默认主色（浅主题 #5BC0BE）
+        super().__init__(parent, width=_TAB_INDICATOR_W, height=_TAB_INDICATOR_H)
 
     def set_indicator_y(self, y: int):
         """直接设置指示器 Y 位置（无动画）"""
-        self.move(0, int(y))
-        self.update()
+        self.snap_to_y(y)
 
     def get_indicator_y(self) -> int:
         """获取当前指示器 Y 位置"""
         return self.y()
 
-    def set_color(self, color: QColor):
-        """设置指示器颜色（主题切换时调用）"""
-        self._color = color
+
+# ====================================================================
+# 转场画布：把合成好的位图按 1:1 画出来
+# ====================================================================
+class _TransitionCanvas(QWidget):
+    """页转场用的画布控件。
+
+    刻意不用 QLabel：`setScaledContents(True)` 会把位图按**逻辑尺寸**重采样，
+    在 1.25 倍缩放的屏幕上实测会在细笔画处留下约 1px 的差异（文字边缘发虚）。
+    这里直接 `drawPixmap(QPoint, QPixmap)`，遵循位图自带的 DPR 按 1:1 落像素。
+
+    自身不画任何背景（默认 autoFillBackground=False），因此位图的透明区会
+    露出下层真实玻璃 —— 这正是转场需要的效果。
+    """
+
+    def __init__(self, pixmap: QPixmap, parent=None):
+        super().__init__(parent)
+        self._pm = pixmap
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+    def set_pixmap(self, pixmap: QPixmap):
+        self._pm = pixmap
         self.update()
 
     def paintEvent(self, event):
+        if self._pm is None or self._pm.isNull():
+            return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # 绘制圆角竖条
-        rect = QRectF(self.rect())
-        path = QPainterPath()
-        path.addRoundedRect(rect, 2, 2)
-        painter.setBrush(QBrush(self._color))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawPath(path)
+        painter.drawPixmap(0, 0, self._pm)
+        painter.end()
 
 
 # ====================================================================
@@ -116,9 +167,12 @@ class _AssetItemWidget(QWidget):
 
     DOUBLE_CLICK_THRESHOLD = 300  # 双击判定时间（毫秒）
 
-    def __init__(self, asset, parent=None):
+    def __init__(self, asset, parent=None, theme: str = DEFAULT_THEME,
+                 thumb_cache: dict | None = None):
         super().__init__(parent)
         self._asset = asset
+        self._theme = theme
+        self._thumb_cache = thumb_cache if thumb_cache is not None else {}
         self._drag_start = None
         self._last_click_time = 0
         self._is_valid = os.path.exists(asset.stored_path) if asset else False
@@ -165,22 +219,38 @@ class _AssetItemWidget(QWidget):
         return tip
 
     def _load_icon(self):
-        """加载缩略图或文件类型图标"""
+        """加载缩略图或文件类型图标（缩略图走缓存 + 解码期缩放，大图不卡）"""
         if not self._is_valid:
             self._icon_label.setText("⚠️")
             self._icon_label.setStyleSheet("font-size: 24px; color: #999;")
             return
 
         if self._asset.is_image:
-            pix = QPixmap(self._asset.stored_path)
-            if not pix.isNull():
-                # 保持比例缩放到 64×64
-                pix = pix.scaled(
-                    64, 64,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                self._icon_label.setPixmap(pix)
+            aid = self._asset.asset_id
+            cached = self._thumb_cache.get(aid)
+            if cached is None:
+                # 缓存未命中：QImageReader 解码期先缩到 2x 目标尺寸，
+                # 避免整图载入内存（截图 PNG 可达数 MB）
+                reader = QImageReader(self._asset.stored_path)
+                reader.setAutoTransform(True)
+                size = reader.size()
+                if size.isValid() and (size.width() > 128 or size.height() > 128):
+                    scale = 128 / max(size.width(), size.height())
+                    reader.setScaledSize(QSize(int(size.width() * scale),
+                                               int(size.height() * scale)))
+                img = reader.read()
+                if not img.isNull():
+                    pix = QPixmap.fromImage(img).scaled(
+                        64, 64,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    cached = pix
+                else:
+                    cached = False
+                self._thumb_cache[aid] = cached
+            if cached is not False:
+                self._icon_label.setPixmap(cached)
             else:
                 self._icon_label.setText("🖼️")
                 self._icon_label.setStyleSheet("font-size: 28px;")
@@ -258,7 +328,8 @@ class _AssetItemWidget(QWidget):
         if not self._asset:
             return
         menu = QMenu(self)
-        menu.setStyleSheet(get_menu_qss("light"))
+        # 跟随当前主题（原先硬编码 light，深色主题下会弹出白底菜单）
+        menu.setStyleSheet(get_menu_qss(self._theme))
 
         act_open = menu.addAction("📂 打开")
         act_copy = menu.addAction("📋 复制路径")
@@ -287,22 +358,35 @@ class CardWindow(QWidget):
     data_changed = pyqtSignal(str)
     request_quit = pyqtSignal()
     card_moved = pyqtSignal()
+    card_drag_started = pyqtSignal()   # 在卡片上按下左键（可能开始拖动）
+    card_drag_finished = pyqtSignal()  # 卡片拖动松手
     card_closed = pyqtSignal()   # 保持显示模式下用户点击关闭按钮
 
     WINDOW_WIDTH = 440
     WINDOW_HEIGHT = 340
+    CARD_MARGIN = 16             # 窗口四周阴影留白（卡片内容仍是 440×340）
+    CARD_RADIUS = 22             # 卡片圆角（与设计稿一致）
+    CONTENT_MARGIN = 16          # 内容区四周内边距
+    CLOSE_BTN_SIZE = 22          # 常驻模式的右上角关闭按钮
+    CLOSE_BTN_MARGIN = 8         # 该按钮距卡片右/上边缘的内边距
+    CLOSE_BTN_RESERVE = 26       # 常驻模式下内容区顶部净空，给关闭按钮让位
 
-    def __init__(self, theme: str = "light"):
+    def __init__(self, theme: str = DEFAULT_THEME):
         super().__init__()
         self._theme = theme
         self._cards = []
         self._current_index = -1
+        self._seq_index = -1      # 滚轮顺序翻卡下标（与 next_card 的随机策略区分）
         self._task_manager = None
         self._note_manager = None
         self._nav_manager = None
         self._config_manager = None
         self._asset_manager = None
         self._fragment_manager = None
+        # 素材页优化：缩略图缓存（asset_id -> QPixmap|False）+ 脏标记
+        # （切页只在数据变化后首次重建，避免每次切页同步解码全部原图）
+        self._asset_thumb_cache = {}
+        self._asset_page_dirty = True
         self._current_note_id = None
         self._loading_note = False
         self._last_mode = "fragment"
@@ -312,6 +396,12 @@ class CardWindow(QWidget):
         self._note_save_timer.setSingleShot(True)
         self._note_save_timer.setInterval(NOTE_AUTOSAVE_INTERVAL_MS)
         self._note_save_timer.timeout.connect(self._on_save_note)
+
+        # 日程任务：勾选动画状态（与主窗口任务页同构）
+        self._task_anim_task_id = None      # 正在动画的 task_id（None=空闲）
+        self._task_undo_target = None       # (task_id, prev_done)
+        self._task_anim = None              # QVariantAnimation（_build_task_page 创建）
+        self._task_rebuild_timer = None     # 延时重建定时器
 
         # 指示器初始化守卫（防止首次显示时动画到错误位置）
         self._indicator_ready = False
@@ -328,12 +418,35 @@ class CardWindow(QWidget):
             | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
+        # 窗口 = 卡片内容 + 四周阴影留白（阴影由 paintEvent 手绘）
+        self.setFixedSize(self.WINDOW_WIDTH + self.CARD_MARGIN * 2,
+                          self.WINDOW_HEIGHT + self.CARD_MARGIN * 2)
+
+    def paintEvent(self, event):
+        """手绘卡片外圈柔和阴影。
+
+        不用 QGraphicsDropShadowEffect：它与 WA_TranslucentBackground 组合
+        会走离屏渲染，拖动/切页时明显掉帧（大窗口早已因此改为自绘）。
+        """
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        colors = get_colors(self._theme)
+        alpha = 96 if colors.get("_name") == "dark" else 60
+        m = self.CARD_MARGIN
+        draw_soft_shadow(
+            painter,
+            QRectF(m, m, self.WINDOW_WIDTH, self.WINDOW_HEIGHT),
+            self.CARD_RADIUS,
+            layers=6, max_alpha=alpha, offset_y=6.0,
+        )
+        painter.end()
 
     def _init_ui(self):
-        self._container = QWidget(self)
+        # 玻璃壳容器：半透明填充 + 顶部高光带 + 双色描边 + 噪点（glass.py 手绘）
+        self._container = GlassPanel(self, radius=self.CARD_RADIUS)
         self._container.setObjectName("cardContainer")
-        self._container.setGeometry(0, 0, self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
+        self._container.setGeometry(self.CARD_MARGIN, self.CARD_MARGIN,
+                                    self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
 
         outer = QHBoxLayout(self._container)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -362,19 +475,15 @@ class CardWindow(QWidget):
             btn.setToolTip(name)
             btn.setFixedSize(_TAB_BTN_SIZE, _TAB_BTN_SIZE)
             key = _TAB_KEYS[i]
-            # 鼠标悬停即切换 Tab（不再依赖点击）
             btn.setProperty("tabKey", key)
-            btn.installEventFilter(self)
+            # 点击切换 Tab（hover 只保留高亮）：鼠标扫过左侧栏不会再连续误切
+            btn.clicked.connect(lambda _checked=False, k=key: self._switch_mode(k))
             self._tab_buttons.append(btn)
             side_v.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         side_v.addStretch()
 
-        # 指示器滑动动画（QVariantAnimation + valueChanged 回调，不依赖 pyqtProperty）
-        self._indicator_anim = QVariantAnimation(self)
-        self._indicator_anim.setDuration(220)
-        self._indicator_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._indicator_anim.valueChanged.connect(self._indicator.set_indicator_y)
+        # 指示器滑动动画已内置在 NavIndicator（260ms OutQuint），此处不再单独维护
 
         outer.addWidget(self._side_tab)
 
@@ -382,8 +491,10 @@ class CardWindow(QWidget):
         content_area = QWidget()
         content_area.setObjectName("contentArea")
         content_layout = QVBoxLayout(content_area)
-        content_layout.setContentsMargins(16, 14, 16, 14)
+        content_layout.setContentsMargins(self.CONTENT_MARGIN, self.CONTENT_MARGIN,
+                                          self.CONTENT_MARGIN, self.CONTENT_MARGIN)
         content_layout.setSpacing(8)
+        self._content_layout = content_layout   # 常驻模式要动态加大顶部净空
 
         self._stack = QStackedWidget()
         content_layout.addWidget(self._stack, 1)
@@ -411,11 +522,12 @@ class CardWindow(QWidget):
         # 保持显示模式下的关闭按钮（右上角，默认隐藏）
         self._close_btn = QPushButton("×", self._container)
         self._close_btn.setObjectName("cardCloseBtn")
-        self._close_btn.setFixedSize(22, 22)
+        self._close_btn.setFixedSize(self.CLOSE_BTN_SIZE, self.CLOSE_BTN_SIZE)
         self._close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._close_btn.setToolTip("关闭卡片")
         self._close_btn.clicked.connect(self._on_close_button_clicked)
         self._close_btn.setVisible(False)
+        self._place_close_button()
 
         self._apply_style()
 
@@ -424,12 +536,7 @@ class CardWindow(QWidget):
         colors = get_colors(self._theme)
         self._indicator.set_color(QColor(colors["primary"]))
 
-        # 柔和悬浮阴影：宽模糊 + 低透明度 + 下偏置，营造 Web 卡片悬浮感
-        shadow = QGraphicsDropShadowEffect(self._container)
-        shadow.setBlurRadius(42)
-        shadow.setColor(QColor(0, 0, 0, 60))
-        shadow.setOffset(0, 10)
-        self._container.setGraphicsEffect(shadow)
+        # 阴影由窗口 paintEvent 手绘（多层圆角矩形，见 paintEvent 注释）
 
         self._switch_mode("fragment")
 
@@ -618,11 +725,32 @@ class CardWindow(QWidget):
         self._task_list.setObjectName("taskList")
         self._task_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._task_list.customContextMenuRequested.connect(self._on_task_context_menu)
+        # 自定义行渲染委托（与主窗口任务页共用同一实现）
+        self._task_delegate = TaskItemDelegate(get_colors(self._theme),
+                                               self._task_list)
+        self._task_delegate.toggle_requested.connect(self._on_task_toggle_requested)
+        self._task_list.setItemDelegate(self._task_delegate)
         v.addWidget(self._task_list, 1)
 
-        hint = QLabel("右键任务：标记完成 / 编辑 / 删除")
+        hint = QLabel("点击勾选框完成 | 右键任务：编辑 / 删除")
         hint.setObjectName("hintLabel")
         v.addWidget(hint)
+
+        # 误勾撤销条（浮动子控件，贴底居中）
+        self._task_undo_bar = UndoBar(page)
+        self._task_undo_bar.undo_clicked.connect(self._on_task_undo)
+
+        # 勾选动画 + 延时重建定时器
+        self._task_anim = QVariantAnimation(self)
+        self._task_anim.setStartValue(0.0)
+        self._task_anim.setEndValue(1.0)
+        self._task_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._task_anim.valueChanged.connect(self._on_task_anim_tick)
+        self._task_anim.finished.connect(self._on_task_anim_finished)
+
+        self._task_rebuild_timer = QTimer(self)
+        self._task_rebuild_timer.setSingleShot(True)
+        self._task_rebuild_timer.timeout.connect(self._refresh_task_list)
         return page
 
     # ==================================================================
@@ -679,8 +807,8 @@ class CardWindow(QWidget):
 
     def _refresh_nav_page(self):
         """刷新网址导航页面显示（不分分组，平铺所有站点）
-        流式布局：短标题按钮保持固定宽度（一行3个），
-        长标题按钮自适应加宽，该行放不下自动换行，窗口宽度不变。
+        双列宽卡片：主标题 + 域名副标题（2026-09-25 用户拍板方案C）。
+        超长标题省略号截断，tooltip 显示完整标题 + URL，点击整卡打开浏览器。
         """
         # 清除旧内容
         while self._nav_content_layout.count():
@@ -703,53 +831,50 @@ class CardWindow(QWidget):
             self._nav_content_layout.addWidget(empty)
             return
 
-        # 计算可用宽度：卡片宽440 - 侧栏48 - 内容区左右margin各16 = 360
-        available_width = self.WINDOW_WIDTH - _TAB_BAR_WIDTH - 32
-        cols = 3
+        # 可用宽度推导：容器440 - 侧栏48 - 内容区margin16×2 - 页面margin4×2
+        #   = 352；再预留纵向滚动条 ~12（出现时 viewport 变窄，这是最坏情况）
+        available_width = self.WINDOW_WIDTH - _TAB_BAR_WIDTH - 32 - 8 - 12
+        cols = 2
         spacing = 6
-        default_btn_w = (available_width - spacing * (cols - 1)) // cols
+        card_w = (available_width - spacing * (cols - 1)) // cols  # 截断估算用
+        card_h = 46
 
-        # 按钮字体度量（与 QSS 中 navSiteBtn 的 13px 一致）
+        # 按钮字体度量（标题 13px，与 QSS navSiteCardTitle 一致）
         font = QFont("Microsoft YaHei")
         font.setPixelSize(13)
         fm = QFontMetrics(font)
 
-        # 创建按钮：短标题用固定宽度，长标题自适应加宽（上限为一整行，防止横向溢出）
-        btn_infos = []
-        for site in sites:
-            btn = QPushButton(site.title)
-            btn.setObjectName("navSiteBtn")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setToolTip(site.url)
-            btn.clicked.connect(lambda checked=False, url=site.url: self._open_url(url))
-            text_w = fm.horizontalAdvance(site.title) + 28  # padding 12×2 + border 2
-            btn_w = min(max(default_btn_w, text_w), available_width)
-            btn.setFixedWidth(btn_w)
-            btn_infos.append((btn, btn_w))
-
-        # 流式布局：逐个排列，放不下换行
+        # 双列宽卡片：QPushButton 作壳（自带点击/hover），内部叠 标题+域名 两行 QLabel。
+        # 高度固定、宽度不写死 → 由 QGridLayout 两列均分实际 viewport 宽，永不溢出
         grid_container = QWidget()
         grid_container.setObjectName("navContent")
-        outer_v = QVBoxLayout(grid_container)
-        outer_v.setContentsMargins(0, 0, 0, 0)
-        outer_v.setSpacing(spacing)
+        grid = QGridLayout(grid_container)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(spacing)
+        grid.setVerticalSpacing(spacing)
 
-        row = QHBoxLayout()
-        row.setSpacing(spacing)
-        row_width = 0
-        for btn, w in btn_infos:
-            extra = spacing if row.count() > 0 else 0
-            if row.count() > 0 and row_width + extra + w > available_width:
-                # 当前行放不下 → 换行
-                outer_v.addLayout(row)
-                row = QHBoxLayout()
-                row.setSpacing(spacing)
-                row_width = 0
-                extra = 0
-            row.addWidget(btn)
-            row_width += extra + w
-        if row.count() > 0:
-            outer_v.addLayout(row)
+        for i, site in enumerate(sites):
+            card = QPushButton()
+            card.setObjectName("navSiteCard")
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
+            card.setToolTip(f"{site.title}\n{site.url}" if site.title != site.url else site.url)
+            card.setFixedHeight(card_h)
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            card.clicked.connect(lambda checked=False, url=site.url: self._open_url(url))
+
+            inner = QVBoxLayout(card)
+            inner.setContentsMargins(10, 5, 10, 5)
+            inner.setSpacing(0)
+
+            title = QLabel(fm.elidedText(site.title, Qt.TextElideMode.ElideRight, card_w - 20))
+            title.setObjectName("navSiteCardTitle")
+            domain = QLabel(fm.elidedText(_domain_of_url(site.url), Qt.TextElideMode.ElideRight, card_w - 20))
+            domain.setObjectName("navSiteCardDomain")
+
+            inner.addWidget(title)
+            inner.addWidget(domain)
+
+            grid.addWidget(card, i // cols, i % cols)
 
         self._nav_content_layout.addWidget(grid_container)
         self._nav_content_layout.addStretch()
@@ -942,7 +1067,8 @@ class CardWindow(QWidget):
         return page
 
     def _refresh_asset_page(self):
-        """刷新临时素材页面"""
+        """刷新临时素材页面（数据变化后首次进入才调用，平常切页零开销）"""
+        self._asset_page_dirty = False
         # 清除旧内容
         while self._asset_content_layout.count():
             item = self._asset_content_layout.takeAt(0)
@@ -960,6 +1086,11 @@ class CardWindow(QWidget):
             return
 
         assets = self._asset_manager.get_all_assets()
+        # 清理已删除素材的缩略图缓存
+        valid_ids = {a.asset_id for a in assets}
+        for key in list(self._asset_thumb_cache):
+            if key not in valid_ids:
+                del self._asset_thumb_cache[key]
         if not assets:
             empty = QLabel("暂无素材，拖文件到悬浮球收录")
             empty.setObjectName("hintLabel")
@@ -976,7 +1107,8 @@ class CardWindow(QWidget):
         grid.setSpacing(6)
         cols = 4
         for i, asset in enumerate(assets):
-            item_widget = _AssetItemWidget(asset)
+            item_widget = _AssetItemWidget(asset, theme=self._theme,
+                                           thumb_cache=self._asset_thumb_cache)
             grid.addWidget(item_widget, i // cols, i % cols)
         # 补齐末行空白，让网格居中对齐
         total = len(assets)
@@ -1009,31 +1141,53 @@ class CardWindow(QWidget):
             self._refresh_asset_page()
             self.data_changed.emit("asset")
 
+    def notify_assets_changed(self):
+        """外部素材数据变化入口：置脏标记；卡片可见时立即重建。
+
+        不可见时只置脏 —— 下次切到素材页/展开卡片时才重建，
+        避免隐藏状态下白白解码缩略图。
+        """
+        self._asset_page_dirty = True
+        if self.isVisible():
+            self._refresh_asset_page()
+
     # ---------------- 样式 ----------------
     def _apply_pages_background(self):
-        """给 QStackedWidget 内所有页面铺实色背景。
+        """让 QStackedWidget 的所有页面保持透明 —— 背景由 GlassPanel 统一负责。
 
-        页面默认是透明 QWidget，在 WA_TranslucentBackground 无边框窗口里：
-          - grab() 快照会得到黑底（导致转场黑色闪屏）；
-          - 切页瞬间 contentArea/stack 透明，透出黑色。
-        用 autoFillBackground + palette 给页面实色底，颜色与半透明容器 card_bg 一致。
+        历史遗留：早期为了规避 grab() 快照黑底、切页透黑，曾给每个页面铺
+        card_bg_solid 实色底；现在容器层已由 GlassPanel 画好玻璃填充/高光/噪点，
+        页面再铺实色会把玻璃效果整块盖掉，因此必须改回透明。
+
+        注意：QScrollArea 的 viewport 也要靠 QSS 设为透明（见 theme.py），
+        否则在深色系统主题下会露出系统 Base 色（#1e1e1e）形成黑块。
         """
-        from src.theme import get_colors
-        solid = QColor(get_colors(self._theme)["card_bg_solid"])
         stack = getattr(self, "_stack", None)
         if stack is None:
             return
+        transparent = QColor(0, 0, 0, 0)
         for i in range(stack.count()):
             page = stack.widget(i)
             if page is None:
                 continue
-            page.setAutoFillBackground(True)
+            page.setAutoFillBackground(False)
             pal = page.palette()
-            pal.setColor(pal.ColorRole.Window, solid)
+            pal.setColor(pal.ColorRole.Window, transparent)
+            pal.setColor(pal.ColorRole.Base, transparent)
             page.setPalette(pal)
+            # 提前 polish：从未显示过的页面在被 grab() 时，样式表还没作用到
+            # 子控件，快照会拿到"未换肤"的渲染（实测输入框 placeholder
+            # 颜色偏深，转场结束时会看见一次轻微跳变）。这里先趟一遍，
+            # 保证任何页面第一次被拍照时都已是最终外观。
+            page.ensurePolished()
+            for child in page.findChildren(QWidget):
+                child.ensurePolished()
 
     def _apply_style(self):
         self._container.setStyleSheet(get_card_window_qss(self._theme))
+        # 玻璃壳配色（填充/描边/高光/噪点）由 GlassPanel 手绘，需同步
+        if isinstance(self._container, GlassPanel):
+            self._container.apply_theme(get_colors(self._theme))
 
     def apply_theme(self, theme_name: str):
         if theme_name not in ("light", "dark"):
@@ -1045,9 +1199,11 @@ class CardWindow(QWidget):
         self._apply_pages_background()
         self._menu.setStyleSheet(get_menu_qss(self._theme))
         # 同步指示器颜色
-        from src.theme import get_colors
         colors = get_colors(theme_name)
         self._indicator.set_color(QColor(colors["primary"]))
+        # 同步任务行委托配色（自绘，需手动刷新）
+        if getattr(self, "_task_delegate", None) is not None:
+            self._task_delegate.set_colors(colors)
 
     def showEvent(self, event):
         """窗口显示后初始化指示器位置，并刷新当前页数据"""
@@ -1065,7 +1221,8 @@ class CardWindow(QWidget):
         elif mode == "nav":
             self._refresh_nav_page()
         elif mode == "asset":
-            self._refresh_asset_page()
+            if self._asset_page_dirty:      # 脏才重建，平常切页零开销
+                self._refresh_asset_page()
         elif mode == "app":
             self._refresh_app_page()
 
@@ -1080,11 +1237,11 @@ class CardWindow(QWidget):
         self._menu.exec(event.globalPos())
 
     def eventFilter(self, obj, event):
-        """Tab 按钮悬停切换：鼠标进入按钮即切换到对应模式。"""
-        if event.type() == QEvent.Type.Enter:
-            key = obj.property("tabKey")
-            if key and key != getattr(self, "_last_mode", None):
-                self._switch_mode(key)
+        """Tab 切换已改为点击触发（见 _tab_buttons 的 clicked 连接）。
+
+        保留 eventFilter 以兼容外部安装，但不再在鼠标进入时切页 ——
+        否则鼠标从卡片左侧栏扫过会连续切换好几个 Tab。
+        """
         return super().eventFilter(obj, event)
 
     # ---------------- 模式切换 ----------------
@@ -1128,7 +1285,8 @@ class CardWindow(QWidget):
         elif mode == "nav":
             self._refresh_nav_page()
         elif mode == "asset":
-            self._refresh_asset_page()
+            if self._asset_page_dirty:      # 脏才重建，平常切页零开销
+                self._refresh_asset_page()
         elif mode == "app":
             self._refresh_app_page()
 
@@ -1142,6 +1300,10 @@ class CardWindow(QWidget):
         for eff in getattr(self, "_trans_effects", []):
             eff.deleteLater()
         self._trans_effects = []
+        # 转场期间真实页面被隐藏（见 _animate_page_transition），这里必须恢复
+        stack = getattr(self, "_stack", None)
+        if stack is not None and not stack.isVisible():
+            stack.setVisible(True)
         anim = getattr(self, "_page_transition_anim", None)
         if anim is not None:
             try:
@@ -1151,74 +1313,137 @@ class CardWindow(QWidget):
             anim.deleteLater()
             self._page_transition_anim = None
 
+    def _page_content_snapshot(self, page, size: QSize) -> QPixmap:
+        """抓页面**内容**快照（背景透明，仅用于合成，不直接显示）。
+
+        页面本身是透明的（见 _apply_pages_background），所以这里拿到的是
+        「只有文字/控件、没有底」的位图，显示时必须让真实玻璃底透上来。
+        """
+        snap = page.grab()
+        # 页面几何已由 setCurrentIndex 同步到可见尺寸；万一偏大则裁到可见区
+        dpr = snap.devicePixelRatio() or 1.0
+        pw = int(round(size.width() * dpr))
+        ph = int(round(size.height() * dpr))
+        if snap.width() != pw or snap.height() != ph:
+            snap = snap.copy(QRect(0, 0, pw, ph))
+        return snap
+
     def _animate_page_transition(self, old_idx: int, new_idx: int):
         """
-        Tab 页水平滑入淡入转场（单新页快照覆盖法）。
+        Tab 页左右推挤转场（内容层合成法，彻底无重影）。
 
-        关键：动画期间底层保持旧页不动，只让「新页快照」从右侧滑入并淡入，
-        直到动画结束才真正 setCurrentIndex 切到新页。这样：
-          - 不再有「底层新页提前到位」的闪屏（旧问题根因）；
-          - 快照半透明时透出的是同位置的旧页，形成自然的滑入溶解，无黑闪/重影；
-          - 只叠加一个覆盖层，无旧页移动导致的内容撕裂或偏移。
+        ## 两版旧实现的坑（都已实测复现）
 
-        方向随 Tab 前进(新>旧)/后退(新<旧)自动切换（前进新页从右，后退从左）。
+        v1：只叠一层「新页快照」并让它从透明淡入 → 淡入期间旧页透上来。
+        v2：两层快照等位移推挤 → 仍有重影，原因有两个，都不是位移的问题：
+
+          · 页面是**透明**的（autoFillBackground=False，背景归 GlassPanel 管），
+            实测 `page.grab()` 里 88% 的像素 alpha=0；
+          · 而它下面露出的是**真实旧页**（stack 全程停在 old_idx，只在动画
+            结束才 setCurrentIndex）—— 于是新页的每处空白都透出旧页内容。
+
+        给快照垫一层玻璃底能堵住透明，但遮罩下方**已经有**一层真实玻璃，
+        两层叠加会把整块内容区刷成纯白（实测：静止 #F2F2F2 vs 末帧 #FFFFFF）。
+
+        ## 现在的做法
+
+        转场期间把真实页面（整个 QStackedWidget）**隐藏**，只留真实玻璃：
+
+          · 遮罩下方 = 真实玻璃 → 空白处露出的就是静止态该有的样子；
+          · 遮罩只放「页面内容」（透明底）→ 不会出现双层玻璃发白；
+          · 两页位移互补（old_off + new_off ≡ slide）→ 严丝合缝，无缝隙无重叠；
+          · 合成到单张画布、单个 QLabel 显示 → 只有一处重绘，比两个控件搬动更省。
+
+        数学上遮罩最终呈现 = 页面内容 over 真实玻璃，与静止态逐像素等价。
+        抓快照前先派发 DeferredDelete：列表刷新用 deleteLater()，未派发时
+        被淘汰的旧行仍挂在控件树上，会被一起画进快照。
         """
         self._finalize_page_transition()
 
         stack = self._stack
         if stack is None:
             return
-        parent = stack.parentWidget()          # content_area，覆盖层挂这里
-        pos = stack.pos()                      # stack 在 content_area 中的位置
+        parent = stack.parentWidget()          # content_area
+        pos = stack.pos()
         size = stack.size()
         w, h = size.width(), size.height()
         x0, y0 = pos.x(), pos.y()
+        if w <= 0 or h <= 0:
+            stack.setCurrentIndex(new_idx)
+            return
 
+        # 关键：先清掉待删除控件，保证快照内容干净
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+        old_page = stack.widget(old_idx)
         new_page = stack.widget(new_idx)
+        if old_page is None or new_page is None:
+            stack.setCurrentIndex(new_idx)
+            return
 
-        # 新页内容已在 _switch_mode 里事先刷新；临时切到新页抓快照，
-        # 再立刻切回旧页（同步过程屏幕不重绘，底层始终保持旧页）。
+        # 旧页快照：此刻它正在显示，直接抓
+        old_snap = self._page_content_snapshot(old_page, size)
+        # 新页快照：内容已在 _switch_mode 里事先刷新；临时切过去抓，再切回来
+        # （setCurrentIndex 会同步把新页约束到可见尺寸并布局完毕）
         stack.setCurrentIndex(new_idx)
-        new_snap = new_page.grab()
+        new_snap = self._page_content_snapshot(new_page, size)
         stack.setCurrentIndex(old_idx)
 
-        lab = QLabel(parent)
-        lab.setPixmap(new_snap)
-        lab.setScaledContents(True)            # 快照缩放到覆盖层尺寸，无黑边白边
-        lab.setGeometry(x0, y0, w, h)
-        lab.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        lab.show()
-        lab.raise_()
-
-        eff = QGraphicsOpacityEffect(lab)
-        lab.setGraphicsEffect(eff)
-        eff.setOpacity(0.0)
-
         direction = 1 if new_idx > old_idx else -1   # 前进→新页从右滑入
-        slide = 46 * direction
+        slide = w                                    # 位移 = 整页宽，两页严丝合缝
 
-        self._trans_labels = [lab]
-        self._trans_effects = [eff]
+        dpr = self.devicePixelRatioF() or 1.0
+        canvas = QPixmap(int(round(w * dpr)), int(round(h * dpr)))
+        canvas.setDevicePixelRatio(dpr)
+        canvas.fill(Qt.GlobalColor.transparent)
+
+        # 裁剪容器：几何等于内容区，画布超出部分被裁掉，不会画到卡片留白上
+        clip_host = QWidget(parent)
+        clip_host.setGeometry(x0, y0, w, h)
+        clip_host.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        clip_host.show()
+        clip_host.raise_()
+
+        view = _TransitionCanvas(canvas, clip_host)
+        view.setGeometry(0, 0, w, h)
+        view.show()
+
+        self._trans_labels = [clip_host, view]
+        self._trans_effects = []
+
+        def _compose(t: float):
+            """按进度合成一帧：旧页 + 新页（位移互补，无缝隙无重叠）"""
+            moved = int(round(slide * t))
+            off_old = -direction * moved
+            off_new = direction * (slide - moved)
+            # 必须清空：画布复用，两页的空白区是半透明的，不清会与上一帧混色
+            canvas.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(canvas)
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceOver)
+            painter.drawPixmap(off_old, 0, old_snap)
+            painter.drawPixmap(off_new, 0, new_snap)
+            painter.end()
+            view.set_pixmap(canvas)
+
+        # 先铺好首帧，再隐藏真实页面 —— 中间不派发事件，屏幕不会闪
+        _compose(0.0)
+        stack.setVisible(False)
 
         anim = QVariantAnimation(self)
-        anim.setDuration(220)
+        anim.setDuration(260)
         anim.setStartValue(0.0)
         anim.setEndValue(1.0)
         anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        def _on_progress(value: float):
-            # 新页快照从右侧滑入，同时淡入
-            lab.move(x0 + int(slide * (1.0 - value)), y0)
-            eff.setOpacity(value)
-
         def _on_finished():
-            # 此刻新页快照已完全不透明并覆盖旧页，切到真实新页无感
             stack.setCurrentIndex(new_idx)
-            self._finalize_page_transition()
+            self._finalize_page_transition()      # 内含恢复 stack 可见
 
-        anim.valueChanged.connect(_on_progress)
+        anim.valueChanged.connect(_compose)
         anim.finished.connect(_on_finished)
         self._page_transition_anim = anim
+        self._trans_compose = _compose      # 供回归脚本逐帧驱动（check_transition.py）
         anim.start()
 
     def _move_indicator_to(self, idx: int):
@@ -1233,10 +1458,8 @@ class CardWindow(QWidget):
         btn_geom = btn.geometry()
         target_y = btn_geom.y() + btn_geom.height() // 2 - _TAB_INDICATOR_H // 2
 
-        self._indicator_anim.stop()
-        self._indicator_anim.setStartValue(self._indicator.get_indicator_y())
-        self._indicator_anim.setEndValue(target_y)
-        self._indicator_anim.start()
+        # NavIndicator 内置 260ms OutQuint 滑动动画
+        self._indicator.move_to_y(target_y)
 
     def _init_indicator_position(self):
         """初始化指示器位置（在 showEvent 后调用）"""
@@ -1275,6 +1498,7 @@ class CardWindow(QWidget):
     def set_asset_manager(self, am):
         """注入临时素材管理器"""
         self._asset_manager = am
+        self._asset_page_dirty = True   # 管理器就绪/替换 → 素材页需重建
 
     def set_fragment_manager(self, fm):
         """注入碎片管理器"""
@@ -1286,10 +1510,35 @@ class CardWindow(QWidget):
             return self._config_manager.get("card_always_show", False)
         return False
 
+    def _place_close_button(self):
+        """把关闭按钮端正地放在卡片右上角内侧。
+
+        按钮父对象是容器（440×340），坐标必须用**容器坐标系**：
+        原来写成 CARD_MARGIN + WINDOW_WIDTH - 30，等于 426 → 按钮右边缘到 448，
+        超出容器 8px 被裁掉一半，看起来"位置不正"。
+        """
+        m = self.CLOSE_BTN_MARGIN
+        self._close_btn.move(self.WINDOW_WIDTH - self._close_btn.width() - m, m)
+        self._close_btn.setVisible(self.is_always_show())
+        self._close_btn.raise_()
+
+    def _apply_always_show_margin(self):
+        """常驻模式给内容区顶部留出关闭按钮的净空，避免压住首行内容"""
+        if getattr(self, '_content_layout', None) is None:
+            return
+        base = self.CONTENT_MARGIN
+        top = base + (self.CLOSE_BTN_RESERVE if self.is_always_show() else 0)
+        self._content_layout.setContentsMargins(base, top, base, base)
+
     def _on_close_button_clicked(self):
         """保持显示模式下点击关闭按钮"""
         self.hide()
         self.card_closed.emit()
+
+    def refresh_always_show_layout(self):
+        """常驻模式开关变化时刷新关闭按钮与内容净空（设置页勾选即时生效）"""
+        self._apply_always_show_margin()
+        self._place_close_button()
 
     def has_shown_content(self) -> bool:
         return self._current_index >= 0
@@ -1317,26 +1566,76 @@ class CardWindow(QWidget):
     def next_card(self):
         self.show_next_random()
 
+    def step_card(self, direction: int):
+        """按顺序上/下一张知识卡（球体滚轮用；点击球仍是随机换卡）
+
+        与 show_next_random 的区别：这里按 _cards 的顺序循环前进/后退，
+        让"滚轮上滚 = 上一张、下滚 = 下一张"有明确的前后关系。
+        """
+        if not self._cards:
+            self.show_next_random()
+            return
+        total = len(self._cards)
+        idx = self._seq_index
+        if idx < 0 or idx >= total:
+            idx = self._current_index if self._current_index >= 0 else 0
+        self._seq_index = (idx + int(direction)) % total
+        self._current_index = self._seq_index
+        safe_text = html.escape(self._cards[self._current_index])
+        self._content_label.setText(
+            f'<div style="line-height:180%;">{safe_text}</div>'
+        )
+
     def popup_near(self, ball_rect):
         self._switch_mode(self._last_mode)
         screen = get_screen_geometry()
-        x = ball_rect.left() - self.width() - 12
+        # 间距按「卡片内容边缘」计算，窗口四周的阴影留白不计入
+        gap = 12
+        x = ball_rect.left() - self.WINDOW_WIDTH - gap - self.CARD_MARGIN
         y = ball_rect.top() - (self.height() - ball_rect.height()) // 2
+        from_left = True
         if x < screen.left():
-            x = ball_rect.right() + 12
+            x = ball_rect.right() + gap - self.CARD_MARGIN
+            from_left = False
         if y < screen.top():
             y = screen.top() + 10
         if y + self.height() > screen.bottom():
             y = screen.bottom() - self.height() - 10
         self.move(int(x), int(y))
-        # 保持显示模式下显示关闭按钮
-        self._close_btn.setVisible(self.is_always_show())
-        # 定位关闭按钮到右上角
-        self._close_btn.move(self.WINDOW_WIDTH - 30, 8)
-        self._close_btn.raise_()
+        # 常驻显示模式：内容区顶部让出净空，关闭按钮端正落在卡片右上角
+        self._apply_always_show_margin()
+        self._place_close_button()
         self.show()
         self.raise_()
         self.activateWindow()
+        # 弹入：从球所在方向滑入 14px 并淡入
+        self._play_pop_in(14 if from_left else -14)
+
+    def _play_pop_in(self, from_dx: int = 14):
+        """弹入动画：淡入 + 从球的方向位移 14px 汇合（180~220ms）。
+
+        这是"卡片从球里长出来"的关键一笔，替代原来的硬 show()。
+        """
+        end_pos = self.pos()
+        start_pos = QPoint(end_pos.x() + from_dx, end_pos.y())
+
+        fade = QPropertyAnimation(self, b"windowOpacity", self)
+        fade.setDuration(180)
+        fade.setStartValue(0.0)
+        fade.setEndValue(1.0)
+        fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        slide = QPropertyAnimation(self, b"pos", self)
+        slide.setDuration(220)
+        slide.setStartValue(start_pos)
+        slide.setEndValue(end_pos)
+        slide.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self.setWindowOpacity(0.0)
+        self.move(start_pos)
+        fade.start()
+        slide.start()
+        self._pop_anims = [fade, slide]
 
     # ---------------- 日程任务 ----------------
     def _on_add_task(self):
@@ -1352,25 +1651,123 @@ class CardWindow(QWidget):
         self.data_changed.emit("task")
 
     def _refresh_task_list(self):
+        """按分组重建卡片任务列表（与主窗口同口径、同渲染）。"""
         self._task_list.clear()
         if not self._task_manager:
             return
-        for t in self._task_manager.get_all_tasks():
-            status = "✓" if t.done else "☐"
-            text = f"{status}  {t.title}"
-            if t.deadline:
-                text += f"   ｜ 截止: {t.deadline}"
-            item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, t.task_id)
-            if t.done:
-                item.setForeground(QColor(150, 150, 150))
-            self._task_list.addItem(item)
+        self._task_delegate.set_colors(get_colors(self._theme))
+        self._task_delegate.clear_progress_except(self._task_anim_task_id)
+
+        today = _date.today().isoformat()
+        for group_key, tasks in self._task_manager.get_tasks_grouped(today):
+            header_item = QListWidgetItem(
+                f"{group_title(group_key, today)}  ·  {len(tasks)}")
+            header_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            header_item.setData(KIND_ROLE, KIND_HEADER)
+            self._task_list.addItem(header_item)
+            for t in tasks:
+                state, _delta = task_state(t.deadline, today)
+                item = QListWidgetItem("")
+                item.setData(Qt.ItemDataRole.UserRole, t.task_id)
+                item.setData(KIND_ROLE, KIND_ROW)
+                item.setData(ROLE_TITLE, t.title)
+                item.setData(ROLE_REL,
+                              format_relative_deadline(t.deadline, today))
+                item.setData(ROLE_STATE, state)
+                item.setData(ROLE_DONE, bool(t.done))
+                self._task_list.addItem(item)
+
+    # ---- 卡片任务：行内勾选 + 动画 + 撤销 ----
+    def _task_anim_speed(self) -> float:
+        """读取动画速度档位（与小卡片宿主 config 一致），异常回退 1.0。"""
+        try:
+            speed = float(self._config_manager.get("anim_speed", 1.0)) \
+                if self._config_manager else 1.0
+        except (TypeError, ValueError, AttributeError):
+            speed = 1.0
+        return max(0.5, min(2.0, speed))
+
+    def _on_task_toggle_requested(self, task_id: int):
+        """单击勾选框 / 标题 → 切换完成态并播放动画。"""
+        if not self._task_manager:
+            return
+        task = self._task_manager.get_task(task_id)
+        if task is None:
+            return
+        prev_done = bool(task.done)
+        new_done = not prev_done
+        if not self._task_manager.set_done(task_id, new_done):
+            return
+
+        if self._task_anim_task_id is not None \
+                and self._task_anim_task_id != task_id:
+            self._task_delegate.set_check_progress(
+                self._task_anim_task_id, float(self._task_anim.endValue()))
+
+        self._task_undo_target = (task_id, prev_done)
+
+        self._task_anim.stop()
+        self._task_rebuild_timer.stop()
+        self._task_anim_task_id = task_id
+        start = 0.0 if new_done else 1.0
+        end = 1.0 if new_done else 0.0
+        self._task_delegate.set_check_progress(task_id, start)
+        duration = max(1, int(CHECK_ANIM_MS / max(0.01, self._task_anim_speed())))
+        self._task_anim.setDuration(duration)
+        self._task_anim.setStartValue(start)
+        self._task_anim.setEndValue(end)
+        self._task_list.viewport().update()
+        self._task_anim.start()
+
+        self._task_undo_bar.show_for(task_id, task.title)
+        self.data_changed.emit("task")
+
+    def _on_task_anim_tick(self, value):
+        if self._task_anim_task_id is None:
+            return
+        self._task_delegate.set_check_progress(self._task_anim_task_id, float(value))
+        self._task_list.viewport().update()
+
+    def _on_task_anim_finished(self):
+        self._task_anim_task_id = None
+        self._task_rebuild_timer.start(250)
+
+    def _on_task_undo(self, task_id: int):
+        """撤销最近一次完成操作。"""
+        if not self._task_manager:
+            return
+        prev_done = False
+        if self._task_undo_target and self._task_undo_target[0] == task_id:
+            prev_done = bool(self._task_undo_target[1])
+        self._task_manager.set_done(task_id, prev_done)
+        self._task_undo_target = None
+        self._stop_task_animations()
+        self._refresh_task_list()
+        self.data_changed.emit("task")
+
+    def _stop_task_animations(self):
+        """停止动画、清空进度与撤销状态（非动画路径的数据变更）。"""
+        if self._task_anim is not None:
+            self._task_anim.stop()
+        if self._task_rebuild_timer is not None:
+            self._task_rebuild_timer.stop()
+        self._task_anim_task_id = None
+        self._task_undo_target = None
+        if getattr(self, "_task_undo_bar", None) is not None:
+            self._task_undo_bar.hide()
+        if getattr(self, "_task_delegate", None) is not None:
+            self._task_delegate.clear_progress_except(None)
 
     def _on_task_context_menu(self, pos):
         item = self._task_list.itemAt(pos)
         if not item or not self._task_manager:
             return
+        # 组标题行跳过
+        if item.data(KIND_ROLE) != KIND_ROW:
+            return
         task_id = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(task_id, bool) or not isinstance(task_id, int):
+            return
         task = self._task_manager.get_task(task_id)
         if not task:
             return
@@ -1384,12 +1781,14 @@ class CardWindow(QWidget):
 
         action = menu.exec(self._task_list.mapToGlobal(pos))
         if action == act_toggle:
-            self._task_manager.toggle_task(task_id)
+            self._stop_task_animations()
+            self._task_manager.set_done(task_id, not task.done)
             self._refresh_task_list()
             self.data_changed.emit("task")
         elif action == act_edit:
             self._edit_task(task)
         elif action == act_delete:
+            self._stop_task_animations()
             self._task_manager.delete_task(task_id)
             self._refresh_task_list()
             self.data_changed.emit("task")
@@ -1424,12 +1823,7 @@ class CardWindow(QWidget):
         form.addRow("备注:", note_edit)
         form.addRow("截止:", deadline_edit)
 
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
-        btns.accepted.connect(dialog.accept)
-        btns.rejected.connect(dialog.reject)
-        form.addRow(btns)
+        form.addRow(make_dialog_buttons(dialog))
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._task_manager.update_task(
@@ -1492,6 +1886,9 @@ class CardWindow(QWidget):
             self._dragging = True
             self._drag_offset = (event.globalPosition().toPoint()
                                  - self.frameGeometry().topLeft())
+            # 通知宿主机（悬浮球）此刻卡片与球的真实相对位置 —— 球侧据此跟随，
+            # 否则直接拖卡片时球会失去参照被甩到卡片左上角（见 _on_card_moved）
+            self.card_drag_started.emit()
             event.accept()
 
     def mouseMoveEvent(self, event):
@@ -1502,5 +1899,8 @@ class CardWindow(QWidget):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            was_dragging = self._dragging
             self._dragging = False
+            if was_dragging:
+                self.card_drag_finished.emit()
             event.accept()

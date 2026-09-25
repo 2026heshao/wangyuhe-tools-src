@@ -11,12 +11,15 @@
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QLineEdit, QListWidget, QListWidgetItem, QMenu, QTextEdit,
-    QDialog, QDialogButtonBox, QMessageBox,
+    QMessageBox,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 
-from src.fragment_manager import TYPE_KNOWLEDGE_SEGMENT
 from src.constants import PARAGRAPH_PREVIEW_LEN
+from src.glass_dialog import GlassDialog
+
+# 搜索去抖毫秒数（与碎片页 SEARCH_DEBOUNCE_MS 同值；两面板各自本地定义，避免跨面板耦合）
+SEARCH_DEBOUNCE_MS = 250
 
 
 class KnowledgePanel(QWidget):
@@ -74,25 +77,60 @@ class KnowledgePanel(QWidget):
         # ---- 搜索框 ----
         self._kb_search = QLineEdit()
         self._kb_search.setPlaceholderText("🔍 搜索段落内容...")
-        self._kb_search.textChanged.connect(self.refresh)
+        # 搜索输入只做本地过滤（外部修改检测走 recheck=True 路径，避免每敲一字算一次 docx 哈希）
+        # 输入去抖：停顿 SEARCH_DEBOUNCE_MS 才真正刷新，敲字过程不重建列表
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(
+            lambda: self.refresh(preserve_view=False, recheck=False))
+        self._kb_search.textChanged.connect(self._on_search_changed)
         v.addWidget(self._kb_search)
 
         # ---- 段落列表（多选） ----
         self._kb_list = QListWidget()
+        self._kb_list.setObjectName("kbList")
+        # 长列表（300+ 段）：垂直滚动条常驻，滑块样式见 theme.py 的 #kbList 规则
+        self._kb_list.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._kb_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self._kb_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._kb_list.customContextMenuRequested.connect(self._on_context_menu)
+        self._kb_list.itemDoubleClicked.connect(self._on_item_double_clicked)
         v.addWidget(self._kb_list, 1)
 
         # ---- 底部提示 ----
-        hint = QLabel("右键段落：编辑 / 删除 / 在此后新增 / 加入碎片池")
+        hint = QLabel("双击段落：编辑 · 右键段落：编辑 / 删除 / 在此后新增 / 加入碎片池")
         hint.setObjectName("hintLabel")
         v.addWidget(hint)
 
     # ---- 刷新入口 ----
-    def refresh(self):
-        """刷新知识库段落列表"""
+    def _on_search_changed(self, _text: str):
+        """搜索输入去抖：停顿 SEARCH_DEBOUNCE_MS 后才刷新列表"""
+        self._search_timer.start()
+
+    def _on_item_double_clicked(self, item):
+        """双击段落 → 直接打开编辑（无结果占位行没有段落号，忽略）"""
+        index = item.data(Qt.ItemDataRole.UserRole)
+        if index is None:
+            return
+        self._edit_paragraph(index)
+
+    def refresh(self, preserve_view: bool = True, recheck: bool = True):
+        """刷新知识库段落列表
+
+        preserve_view=True 时保留滚动位置与选中项（编辑/删除后列表不跳顶）；
+        搜索等结果集变化的路径传 preserve_view=False（回顶部，与碎片页一致）。
+        recheck=False 时跳过外部修改检测（搜索输入等高频路径），
+        仅在页面刷新 / 重新加载等低频路径做完整检测。
+        """
         keyword = self._kb_search.text().strip().lower()
+        bar = self._kb_list.verticalScrollBar()
+        scroll_value = bar.value() if preserve_view else 0
+        selected_idx = {item.data(Qt.ItemDataRole.UserRole)
+                        for item in self._kb_list.selectedItems()}
+        if not preserve_view:
+            selected_idx = set()
         self._kb_list.clear()
         paragraphs = self._docx_manager.get_paragraphs()
         shown = 0
@@ -105,11 +143,22 @@ class KnowledgePanel(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, p.index)
             item.setToolTip(p.text)
             self._kb_list.addItem(item)
+            if p.index in selected_idx:
+                item.setSelected(True)
             shown += 1
         if keyword:
             self._kb_count_label.setText(f"显示 {shown} / 共 {len(paragraphs)} 段")
+            if shown == 0:
+                # 无结果占位提示（不可选中，双击/右键均被 UserRole=None 守卫挡下）
+                placeholder = QListWidgetItem("（无匹配段落，换个关键词试试）")
+                placeholder.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                self._kb_list.addItem(placeholder)
         else:
             self._kb_count_label.setText(f"共 {len(paragraphs)} 段")
+        bar.setValue(min(scroll_value, bar.maximum()))
+
+        if not recheck:
+            return
 
         theme = self._host.current_theme
         if self._docx_manager.check_external_modification():
@@ -145,85 +194,76 @@ class KnowledgePanel(QWidget):
             self._delete_paragraph(index)
 
     def _edit_paragraph(self, index: int):
-        """编辑段落对话框"""
+        """编辑段落对话框（玻璃风格，与主窗口一致）"""
         text = self._docx_manager.get_paragraph_text(index)
         if not text:
             return
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"编辑段落 {index+1}")
-        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
-        dialog.resize(460, 240)
-
-        v = QVBoxLayout(dialog)
-        v.setContentsMargins(20, 20, 20, 16)
-        v.setSpacing(10)
-
+        dlg = GlassDialog(self._host, title=f"编辑段落 {index + 1}",
+                          size=(520, 400))
         edit = QTextEdit()
         edit.setPlainText(text)
-        v.addWidget(edit, 1)
+        dlg.body_layout.addWidget(edit, 1)
 
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
-        btns.accepted.connect(dialog.accept)
-        btns.rejected.connect(dialog.reject)
-        v.addWidget(btns)
+        btns = dlg.add_footer([
+            ("💾 保存", "primaryBtn", None),
+            ("取消", "secondaryBtn", dlg.reject),
+        ])
 
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        def _save():
             new_text = edit.toPlainText().strip()
-            if new_text and new_text != text:
-                if self._docx_manager.update_paragraph_text(index, new_text):
-                    if self._docx_manager.save():
-                        self.refresh()
-                        self._host.data_changed.emit("knowledge")
-                    else:
-                        QMessageBox.warning(self, "保存失败", "docx 保存失败，请检查文件权限。")
+            if not new_text or new_text == text:
+                dlg.reject()
+                return
+            if self._docx_manager.update_paragraph_text(index, new_text):
+                if self._docx_manager.save():
+                    dlg.accept()
+                    self.refresh()
+                    self._host.data_changed.emit("knowledge")
                 else:
-                    QMessageBox.warning(self, "修改失败", "段落修改失败。")
+                    QMessageBox.warning(self, "保存失败", "docx 保存失败，请检查文件权限。")
+            else:
+                QMessageBox.warning(self, "修改失败", "段落修改失败。")
+
+        btns[0].clicked.connect(_save)
+        dlg.exec()
 
     def _insert_after(self, index: int):
-        """在指定段落后新增段落"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"在段落 {index+1} 后新增")
-        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
-        dialog.resize(460, 240)
-
-        v = QVBoxLayout(dialog)
-        v.setContentsMargins(20, 20, 20, 16)
-        v.setSpacing(10)
-
+        """在指定段落后新增段落（玻璃风格）"""
+        dlg = GlassDialog(self._host, title=f"在段落 {index + 1} 后新增",
+                          size=(520, 400))
         edit = QTextEdit()
         edit.setPlaceholderText("输入新段落内容...")
-        v.addWidget(edit, 1)
+        dlg.body_layout.addWidget(edit, 1)
 
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
-        btns.accepted.connect(dialog.accept)
-        btns.rejected.connect(dialog.reject)
-        v.addWidget(btns)
+        btns = dlg.add_footer([
+            ("💾 保存", "primaryBtn", None),
+            ("取消", "secondaryBtn", dlg.reject),
+        ])
 
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        def _save():
             new_text = edit.toPlainText().strip()
-            if new_text:
-                new_idx = self._docx_manager.insert_paragraph_after(index, new_text)
-                if new_idx >= 0:
-                    if self._docx_manager.save():
-                        self.refresh()
-                        self._host.data_changed.emit("knowledge")
-                    else:
-                        QMessageBox.warning(self, "保存失败", "docx 保存失败。")
+            if not new_text:
+                dlg.reject()
+                return
+            new_idx = self._docx_manager.insert_paragraph_after(index, new_text)
+            if new_idx >= 0:
+                if self._docx_manager.save():
+                    dlg.accept()
+                    self.refresh()
+                    self._host.data_changed.emit("knowledge")
                 else:
-                    QMessageBox.warning(self, "新增失败", "段落新增失败。")
+                    QMessageBox.warning(self, "保存失败", "docx 保存失败。")
+            else:
+                QMessageBox.warning(self, "新增失败", "段落新增失败。")
+
+        btns[0].clicked.connect(_save)
+        dlg.exec()
 
     def _delete_paragraph(self, index: int):
         """删除段落"""
-        ret = QMessageBox.question(
-            self, "确认删除",
-            f"确认删除段落 {index+1}？此操作将修改 docx 文件。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if ret != QMessageBox.StandardButton.Yes:
+        if not self._confirm("确认删除",
+                             f"确认删除段落 {index + 1}？此操作将修改 docx 文件。",
+                             "🗑 删除"):
             return
         if self._docx_manager.delete_paragraph(index):
             if self._docx_manager.save():
@@ -235,6 +275,27 @@ class KnowledgePanel(QWidget):
                 self._docx_manager.reload()
                 self.refresh()
 
+    def _confirm(self, title: str, text: str, confirm_label: str = "确认") -> bool:
+        """玻璃风格确认框（替代原生 QMessageBox.question）"""
+        dlg = GlassDialog(self._host, title=title, size=(440, 220))
+        msg = QLabel(text)
+        msg.setWordWrap(True)
+        dlg.body_layout.addWidget(msg, 1)
+
+        result = {"ok": False}
+        btns = dlg.add_footer([
+            (confirm_label, "dangerBtn", None),
+            ("取消", "secondaryBtn", dlg.reject),
+        ])
+
+        def _ok():
+            result["ok"] = True
+            dlg.accept()
+
+        btns[0].clicked.connect(_ok)
+        dlg.exec()
+        return result["ok"]
+
     def _add_to_fragments(self, index: int):
         """加入段落到碎片池"""
         text = self._docx_manager.get_paragraph_text(index)
@@ -245,7 +306,9 @@ class KnowledgePanel(QWidget):
 
     def _on_add_to_fragments(self):
         """批量加入选中段落到碎片池"""
-        ids = [item.data(Qt.ItemDataRole.UserRole) for item in self._kb_list.selectedItems()]
+        ids = [item.data(Qt.ItemDataRole.UserRole)
+               for item in self._kb_list.selectedItems()]
+        ids = [i for i in ids if i is not None]   # 过滤"无匹配段落"占位行
         if not ids:
             QMessageBox.information(self, "提示", "请先选择要加入的段落。")
             return
@@ -258,32 +321,22 @@ class KnowledgePanel(QWidget):
         QMessageBox.information(self, "已加入", f"已加入 {count} 段到碎片池。")
 
     def _on_append(self):
-        """新增知识：弹窗输入内容，追加到 docx 末尾"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("新增知识")
-        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
-        dialog.resize(460, 260)
-
-        v = QVBoxLayout(dialog)
-        v.setContentsMargins(20, 20, 20, 16)
-        v.setSpacing(10)
-
+        """新增知识：弹窗输入内容，追加到 docx 末尾（玻璃风格）"""
+        dlg = GlassDialog(self._host, title="新增知识", size=(520, 420))
         hint = QLabel("📝 输入新知识内容（将追加到知识库末尾）：")
         hint.setObjectName("sectionLabel")
-        v.addWidget(hint)
+        dlg.body_layout.addWidget(hint)
 
         edit = QTextEdit()
         edit.setPlaceholderText("输入新段落内容...")
-        v.addWidget(edit, 1)
+        dlg.body_layout.addWidget(edit, 1)
 
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
-        btns.accepted.connect(dialog.accept)
-        btns.rejected.connect(dialog.reject)
-        v.addWidget(btns)
+        btns = dlg.add_footer([
+            ("💾 保存", "primaryBtn", None),
+            ("取消", "secondaryBtn", dlg.reject),
+        ])
 
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        def _save():
             new_text = edit.toPlainText().strip()
             if not new_text:
                 QMessageBox.information(self, "提示", "内容为空，未新增。")
@@ -291,6 +344,7 @@ class KnowledgePanel(QWidget):
             new_idx = self._docx_manager.append_paragraph(new_text)
             if new_idx >= 0:
                 if self._docx_manager.save():
+                    dlg.accept()
                     self.refresh()
                     self._host.data_changed.emit("knowledge")
                     QMessageBox.information(
@@ -302,14 +356,15 @@ class KnowledgePanel(QWidget):
             else:
                 QMessageBox.warning(self, "新增失败", "段落追加失败。")
 
+        btns[0].clicked.connect(_save)
+        dlg.exec()
+
     def _on_reload(self):
         """重新加载 docx"""
-        ret = QMessageBox.question(
-            self, "确认重新加载",
-            "重新加载将丢弃当前未保存的内存修改，并重新读取 docx 文件。确认？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if ret != QMessageBox.StandardButton.Yes:
+        if not self._confirm("确认重新加载",
+                             "重新加载将丢弃当前未保存的内存修改，"
+                             "并重新读取 docx 文件。确认？",
+                             "🔄 重新加载"):
             return
         paragraphs, err = self._docx_manager.reload()
         if err:

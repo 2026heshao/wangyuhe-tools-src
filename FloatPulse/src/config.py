@@ -14,21 +14,33 @@
   6. UI 层只能通过本类公开方法操作，禁止直接读写 config.json
 
 配置项：
-  - theme:                主题名 ("light" | "dark")
+  - theme:                主题名 ("light" | "dark")，默认值见 constants.DEFAULT_THEME
   - clipboard_max_items:  剪贴板历史条数上限
   - auto_hide_seconds:    悬浮球空闲吸边隐藏秒数
   - clipboard_filter_apps: 剪贴板过滤应用列表（不捕获这些进程的复制）
+  - clipboard_capture_images: 剪贴板中的图片是否自动存入临时素材池
   - main_window_geometry: 大窗口几何（用于记住上次位置大小）
+  - restore_last_page:    启动时是否恢复上次浏览的页面
+  - last_page_index:      最后浏览的页面索引（0-7，说明页 8 不记录）
+  - close_to_tray:        关闭主窗口时最小化到托盘（不退出程序）
+  - task_reminder_enabled: 任务到期提醒开关（启动时 + 每日 9:00 托盘气泡）
+  - quick_capture_enabled: 全局快速捕捉条开关
+  - quick_capture_hotkey:  快速捕捉全局热键（如 "Ctrl+Alt+K"）
+  - ball_size:            悬浮球球体直径（像素，48-88，默认 64）
+  - hide_on_fullscreen:   全屏应用（视频/游戏/演示）前台时自动隐藏悬浮球
+  - asset_thumb_size:     临时素材缩略图宽度（像素，80-160，决定网格每行个数）
 ====================================================================
 """
 
 import os
 import json
 
+from src.constants import DEFAULT_THEME
+
 
 # 默认配置
 DEFAULT_CONFIG = {
-    "theme":                "light",
+    "theme":                DEFAULT_THEME,
     "clipboard_max_items":  200,
     "auto_hide_seconds":    3,
     "clipboard_filter_apps": [],
@@ -36,12 +48,24 @@ DEFAULT_CONFIG = {
     "card_always_show":     False,
     "temp_asset_max_count": 50,           # 临时素材数量上限
     "temp_asset_max_days":  30,           # 临时素材自动清理天数（0 表示不按天数清理）
+    "asset_thumb_size":     128,          # 素材缩略图宽度（像素，80-160，决定每行个数）
     "ball_visible":         True,         # 悬浮球是否显示
     "apps":                 [],           # 软件导航条目列表
     "app_card_size":        96,           # 软件卡片边长（像素）
     "app_auto_back_home":   False,        # 启动软件后是否自动回到主页面
     "anim_speed":           1.0,          # 悬浮球动画速度档位（0.5-2.0，统一缩放动画时长）
     "ball_position":        None,         # 悬浮球最后保存位置 [x, y]
+    "restore_last_page":    False,        # 启动时是否恢复上次浏览的页面
+    "last_page_index":      0,            # 最后浏览的页面索引（0-7）
+    "close_to_tray":        True,         # 关闭主窗口 → 最小化到托盘（False 沿用旧规则）
+    "task_reminder_enabled": True,        # 任务到期提醒（托盘气泡）
+    "quick_capture_enabled": True,        # 全局快速捕捉条
+    "quick_capture_hotkey": "Ctrl+Alt+K", # 快速捕捉全局热键
+    "ball_size":            64,           # 悬浮球球体直径（像素，48-88）
+    "hide_on_fullscreen":   True,         # 全屏应用前台时自动隐藏悬浮球
+    "fragment_preview_visible": True,     # 碎片工作台右侧预览面板是否显示
+    "clipboard_capture_images": True,     # 剪贴板图片自动存入临时素材池
+    "nav_order":            [],           # 左栏功能页显示顺序（空 = 从未自定义，用默认顺序）
 }
 
 # 配置项类型映射（用于校验）
@@ -54,12 +78,24 @@ _CONFIG_TYPES = {
     "card_always_show":     bool,
     "temp_asset_max_count": int,
     "temp_asset_max_days":  int,
+    "asset_thumb_size":     int,
     "ball_visible":         bool,
     "apps":                 list,
     "app_card_size":        int,
     "app_auto_back_home":   bool,
     "anim_speed":           float,
     "ball_position":        list,
+    "restore_last_page":    bool,
+    "last_page_index":      int,
+    "close_to_tray":        bool,
+    "task_reminder_enabled": bool,
+    "quick_capture_enabled": bool,
+    "quick_capture_hotkey": str,
+    "ball_size":            int,
+    "hide_on_fullscreen":   bool,
+    "fragment_preview_visible": bool,
+    "clipboard_capture_images": bool,
+    "nav_order":            list,
 }
 
 # 配置项取值范围（数值类）
@@ -68,10 +104,53 @@ _CONFIG_RANGES = {
     "auto_hide_seconds":    (1, 60),
     "temp_asset_max_count": (5, 500),
     "temp_asset_max_days":  (0, 365),
-    # 软件卡片尺寸：与主窗口设置页滑动条范围 60-140 保持一致
+    # 素材缩略图宽度：与设置页步进器范围 80-160（每档 8px）保持一致
+    "asset_thumb_size":     (80, 160),
+    # 软件卡片尺寸：与主窗口设置页步进器范围 60-140（每档 4px）保持一致
     "app_card_size":        (60, 140),
     "anim_speed":           (0.5, 2.0),
+    # 主窗口页面索引：0-6 面板 + 7 软件导航（说明页 8 不记录）
+    "last_page_index":      (0, 7),
+    # 悬浮球球体直径：与设置页 Stepper 范围 48-88 保持一致
+    "ball_size":            (48, 88),
 }
+
+
+# ====================================================================
+# 左栏功能页排序（nav_order）：key 集合与默认顺序
+# ====================================================================
+# key 是稳定的功能标识（与 UI 文案、物理索引解耦）；
+# main_window 侧维护 key → QStackedWidget 固定物理索引的映射，
+# 物理索引与功能的绑定永不改变（拖动换位只改变左栏显示顺序）。
+NAV_PAGE_KEYS = frozenset({
+    "fragments",   # 碎片工作台
+    "tasks",       # 日程任务
+    "notes",       # 笔记管理
+    "knowledge",   # 知识库
+    "assets",      # 临时素材
+    "apps",        # 软件导航
+    "nav",         # 网址导航
+})
+
+# 默认显示顺序（与未自定义时的历史左栏顺序一致）
+DEFAULT_NAV_ORDER = ["fragments", "tasks", "notes", "knowledge",
+                     "assets", "apps", "nav"]
+
+
+def sanitize_nav_order(raw, valid_keys=NAV_PAGE_KEYS):
+    """校验 nav_order 配置：必须是全部功能页 key 的一个排列。
+
+    - ``raw`` 非 list / 长度不符 / 含非法 key / 缺 key / 重复 → 返回 None
+      （调用方回退默认顺序，不崩溃）
+    - 合法 → 返回 list 副本
+    """
+    if not isinstance(raw, list) or len(raw) != len(valid_keys):
+        return None
+    if not all(isinstance(k, str) for k in raw):
+        return None
+    if set(raw) != set(valid_keys):
+        return None
+    return list(raw)
 
 
 class ConfigManager:

@@ -212,22 +212,38 @@ class DocxManager:
         return [p.text for p in self._paragraphs]
 
     # ---------------- 增量同步 ----------------
+    def _file_mtime(self):
+        """仅获取 docx 的 mtime（轻量，不读文件内容）；文件不存在返回 None"""
+        if not os.path.exists(self._docx_path):
+            return None
+        try:
+            return os.path.getmtime(self._docx_path)
+        except (OSError, IOError):
+            return None
+
     def check_external_modification(self) -> bool:
         """
         检查 docx 是否被外部修改。
         返回 True 表示检测到外部修改。
 
-        规则：
+        规则（mtime 优先，避免高频调用时整文件 sha1）：
           - 文件不存在 → False
           - 无 meta（首次启动）→ False（不算修改）
-          - sha1 不匹配 → True
+          - mtime 与上次记录一致 → False（直接判定未修改，跳过 sha1）
+          - mtime 变化 → 再算 sha1 确认内容是否真的变化
         """
-        mtime, sha1 = self._file_fingerprint()
-        if sha1 is None:
+        mtime = self._file_mtime()
+        if mtime is None:
             return False
         meta = self._load_meta()
         if not meta:
             return False  # 首次无 meta
+        last_mtime = meta.get("last_mtime")
+        if last_mtime is not None and abs(float(last_mtime) - mtime) < 1e-6:
+            return False  # mtime 一致，跳过 sha1
+        _, sha1 = self._file_fingerprint()
+        if sha1 is None:
+            return False
         last_sha1 = meta.get("last_sha1")
         if last_sha1 is None:
             return False

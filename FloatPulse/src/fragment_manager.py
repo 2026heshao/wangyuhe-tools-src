@@ -29,6 +29,8 @@ import json
 import threading
 from datetime import datetime
 
+from src.json_store import load_records
+
 
 # ====================================================================
 # 去抖写盘器
@@ -194,32 +196,15 @@ class FragmentManager:
 
     # ---------------- 持久化 ----------------
     def _load(self):
-        """
-        从磁盘加载碎片数据。
-        - 文件不存在 → 初始化空列表
-        - json 解析异常 → 初始化空列表，不崩溃
-        """
-        if not os.path.exists(self._json_path):
-            self._fragments = []
-            self._next_id = 1
-            return
+        """从磁盘加载碎片数据（骨架见 json_store.load_records）。
 
-        try:
-            with open(self._json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, dict):
-                raise ValueError("Invalid json structure: expected dict")
-            fragments_data = data.get("fragments", [])
-            self._fragments = [Fragment.from_dict(d) for d in fragments_data if isinstance(d, dict)]
-            self._next_id = data.get("next_id", 1)
-            # 修正 next_id：确保不与已存在 id 冲突
-            if self._fragments:
-                max_id = max(f.fragment_id for f in self._fragments)
-                self._next_id = max(self._next_id, max_id + 1)
-            self._next_id = max(self._next_id, 1)
-        except Exception:
-            self._fragments = []
-            self._next_id = 1
+        - 文件不存在 → 初始化空列表
+        - json 解析异常 → 备份原文件后初始化空列表，不崩溃
+        """
+        self._fragments, self._next_id = load_records(
+            self._json_path, "fragments", Fragment.from_dict,
+            min_next_id=lambda rs: max((f.fragment_id for f in rs), default=0) + 1,
+        )
 
     def _save(self):
         """统一保存：将内存碎片列表一次性写入磁盘 json（原子写入）。"""
@@ -296,6 +281,32 @@ class FragmentManager:
     def add_knowledge_segment(self, content: str, source: str = "知识库") -> int:
         """快捷方法：添加知识卡片段落碎片"""
         return self.add_fragment(TYPE_KNOWLEDGE_SEGMENT, content, source)
+
+    # ---------------- 改 ----------------
+    def update_fragment(self, fragment_id: int, content=None, source=None) -> bool:
+        """更新碎片的 content / source（仅传入的字段生效）。
+
+        - content 为 None 表示不改；去空白后为空则拒绝修改（返回 False），
+          避免产生空碎片
+        - 返回是否真的发生变化（无变化返回 False，不触发写盘）
+        """
+        frag = self.get_fragment(fragment_id)
+        if frag is None:
+            return False
+        changed = False
+        if content is not None:
+            text = str(content)
+            if not text.strip():
+                return False
+            if text != frag.content:
+                frag.content = text
+                changed = True
+        if source is not None and str(source) != frag.source:
+            frag.source = str(source)
+            changed = True
+        if changed:
+            self.mark_dirty()
+        return changed
 
     # ---------------- 删 ----------------
     def delete_fragment(self, fragment_id: int) -> bool:
@@ -394,12 +405,16 @@ class FragmentManager:
         """
         超限时 FIFO 淘汰最早的碎片。
         返回被淘汰的条数。
-        注意：按 created_at 升序淘汰（最早创建的先删）。
+
+        排序键与 get_all_fragments 保持一致（created_at + fragment_id 双键）：
+        created_at 只有分钟精度，同一分钟内新增的多条碎片必须靠自增 id
+        区分先后，否则淘汰顺序不确定（可能出现"该留的被删、该删的留下"）。
         """
         if max_count <= 0 or len(self._fragments) <= max_count:
             return 0
-        # 按 created_at 升序排列（最早在前）
-        sorted_frags = sorted(self._fragments, key=lambda f: f.created_at)
+        # 按 (创建时间, 自增 id) 升序（最早在前）
+        sorted_frags = sorted(self._fragments,
+                              key=lambda f: (f.created_at, f.fragment_id))
         to_remove = len(self._fragments) - max_count
         # 取出要淘汰的 fragment_id
         remove_ids = {f.fragment_id for f in sorted_frags[:to_remove]}

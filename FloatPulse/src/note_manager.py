@@ -27,6 +27,12 @@ import os
 import json
 from datetime import datetime
 
+from src.json_store import load_records
+from src.constants import (
+    safe_int, backup_corrupt_file,
+    NOTE_TITLE_MAX_CHARS,
+)
+
 
 # ====================================================================
 # 笔记数据类
@@ -37,18 +43,21 @@ class Note:
     # 临时笔记固定标题（小卡片专用，主窗口可改名）
     TEMP_NOTE_TITLE = "📌 临时笔记"
 
-    def __init__(self, note_id, content, create_time, update_time, title=""):
+    def __init__(self, note_id, content, create_time, update_time, title="",
+                 title_auto=True):
         self.note_id = note_id              # 唯一主键，自增不复用
         self.content = content              # 笔记内容
         self.create_time = create_time      # 创建时间 "YYYY-MM-DD HH:MM"
         self.update_time = update_time      # 最后修改时间 "YYYY-MM-DD HH:MM"
         self.title = title                  # 笔记标题（旧数据为空时由 manager 兜底）
+        self.title_auto = title_auto        # 标题是否由内容自动生成（True 时随内容刷新）
 
     def to_dict(self):
         """序列化为字典（用于写 json）"""
         return {
             "note_id": self.note_id,
             "title": self.title,
+            "title_auto": self.title_auto,
             "content": self.content,
             "create_time": self.create_time,
             "update_time": self.update_time,
@@ -60,9 +69,10 @@ class Note:
         return cls(
             note_id=int(d.get("note_id", 0) or 0),
             content=str(d.get("content", "")),
-            create_time=str(d.get("create_time", "")),
             update_time=str(d.get("update_time", "")),
             title=str(d.get("title", "")),
+            create_time=str(d.get("create_time", "")),
+            title_auto=bool(d.get("title_auto", True)),
         )
 
 
@@ -86,40 +96,25 @@ class NoteManager:
 
     # ---------------- 持久化 ----------------
     def _load(self):
-        """
-        从磁盘加载笔记数据。
-        - 文件不存在 → 初始化空列表
-        - json 解析异常 → 初始化空列表，不崩溃
-        """
-        if not os.path.exists(self._json_path):
-            self._notes = []
-            self._next_id = 1
-            return
+        """从磁盘加载笔记数据（骨架见 json_store.load_records）。
 
-        try:
-            with open(self._json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            # 校验顶层结构必须是字典
-            if not isinstance(data, dict):
-                raise ValueError("Invalid json structure: expected dict")
-            notes_data = data.get("notes", [])
-            # 过滤非字典元素，防止损坏数据崩溃
-            self._notes = [Note.from_dict(d) for d in notes_data if isinstance(d, dict)]
-            # 兼容旧数据：title 为空时用内容前 5 字兜底
-            for n in self._notes:
-                if not n.title:
-                    n.title = self._auto_title(n.content)
-            self._next_id = data.get("next_id", 1)
-            # 修正 next_id：确保不与已存在 id 冲突（不复用已删除的 id）
-            if self._notes:
-                max_id = max(n.note_id for n in self._notes)
-                self._next_id = max(self._next_id, max_id + 1)
-            # 确保下限：防止 JSON 被手动编辑为非法值
-            self._next_id = max(self._next_id, 1)
-        except Exception:
-            # json 解析异常或文件损坏 → 初始化空列表，保证不崩溃
-            self._notes = []
-            self._next_id = 1
+        - 文件不存在 → 初始化空列表
+        - json 解析异常 → 备份原文件后初始化空列表，不崩溃
+        - 后处理：兼容旧数据，title 为空时用内容前 N 字兜底
+        """
+        self._notes, self._next_id = load_records(
+            self._json_path, "notes", Note.from_dict,
+            min_next_id=lambda ns: max((n.note_id for n in ns), default=0) + 1,
+        )
+        # 兼容旧数据：title 为空时用内容前 N 字兜底
+        for n in self._notes:
+            if not n.title:
+                n.title = self._auto_title(n.content)
+                n.title_auto = True
+            elif n.title == Note.TEMP_NOTE_TITLE:
+                # 临时笔记标题固定，绝不参与自动更新（否则 get_temp_note
+                # 会按标题找不到它，每次调用都新建一条）
+                n.title_auto = False
 
     def _save(self):
         """
@@ -144,15 +139,15 @@ class NoteManager:
 
     # ---------------- 增删改查 ----------------
     @staticmethod
-    def _auto_title(content: str) -> str:
-        """从内容生成默认标题：取前 5 个非空字符（含中文计 1 字）"""
+    def _auto_title(content: str, limit: int = NOTE_TITLE_MAX_CHARS) -> str:
+        """从内容生成默认标题：取前 limit 个非空字符（含中文计 1 字）"""
         text = (content or "").replace("\n", " ").replace("\r", " ").strip()
-        return text[:5] + ("..." if len(text) > 5 else "")
+        return text[:limit] + ("..." if len(text) > limit else "")
 
     def add_note(self, content: str, title: str = "") -> int:
         """
         新建笔记（空白内容也允许保存）。
-        title 为空时自动用内容前 5 字作为标题。
+        title 为空时自动用内容前 N 字作为标题，并标记为自动标题。
         返回新笔记的 note_id。
         """
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -162,6 +157,7 @@ class NoteManager:
             create_time=now,
             update_time=now,
             title=title if title else self._auto_title(content),
+            title_auto=not title,
         )
         self._notes.append(note)
         self._next_id += 1
@@ -172,23 +168,60 @@ class NoteManager:
         """
         编辑笔记内容（严格按 note_id 查找）。
         更新 update_time 为当前时间。
-        title 为 None 时不改标题；为空串或非空串时同步更新（空串时重新自动生成）。
+
+        标题处理规则：
+          - title=None  ：不改标题；但若该笔记是自动标题，则跟随内容刷新
+          - title=""    ：恢复为自动标题（内容前 N 字）
+          - title=非空  ：手动命名，标记为自动标题=False（此后不再被内容覆盖）
         """
         for n in self._notes:
             if n.note_id == note_id:
                 n.content = content
-                if title is not None:
-                    n.title = title if title else self._auto_title(content)
+                if title is None:
+                    if n.title_auto:
+                        self._refresh_title(n)
+                elif title:
+                    n.title = title
+                    n.title_auto = False
+                else:
+                    n.title = self._auto_title(content)
+                    n.title_auto = True
+                n.update_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+                self._save()
+                return True
+        return False
+
+    def _refresh_title(self, note: Note):
+        """自动标题笔记：按当前内容重算标题。临时笔记标题固定，不参与刷新"""
+        if note.title == Note.TEMP_NOTE_TITLE:
+            note.title_auto = False
+            return
+        note.title = self._auto_title(note.content)
+
+    def set_title_auto(self, note_id: int, auto: bool) -> bool:
+        """
+        切换单条笔记「标题是否随内容更新」。
+        切回自动（auto=True）时立即按当前内容重算标题。
+        临时笔记固定标题，不参与自动更新 → 返回 False。
+        """
+        for n in self._notes:
+            if n.note_id == note_id:
+                if n.title == Note.TEMP_NOTE_TITLE:
+                    return False
+                n.title_auto = bool(auto)
+                if auto:
+                    self._refresh_title(n)
                 n.update_time = datetime.now().strftime("%Y-%m-%d %H:%M")
                 self._save()
                 return True
         return False
 
     def update_title(self, note_id: int, title: str) -> bool:
-        """仅修改笔记标题（严格按 note_id 查找）"""
+        """仅修改笔记标题（严格按 note_id 查找）。视为手动命名，冻结不再被内容覆盖"""
         for n in self._notes:
             if n.note_id == note_id:
                 n.title = title
+                n.title_auto = False
                 n.update_time = datetime.now().strftime("%Y-%m-%d %H:%M")
                 self._save()
                 return True

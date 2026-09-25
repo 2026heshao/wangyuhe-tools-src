@@ -36,6 +36,7 @@ import hashlib
 from datetime import datetime, timedelta
 
 from src.constants import sanitize_filename
+from src.json_store import load_records
 
 
 def _file_sha256(path: str) -> str:
@@ -155,45 +156,27 @@ class TempAssetManager:
 
     # ---------------- 持久化 ----------------
     def _load(self):
-        """
-        从磁盘加载素材元数据。
+        """从磁盘加载素材元数据（骨架见 json_store.load_records）。
+
         - 文件不存在 → 初始化空列表
-        - json 解析异常 → 初始化空列表，不崩溃
-        - 自动清理 stored_path 失效的记录（文件被外部删除）
+        - json 解析异常 → 备份原文件后初始化空列表，不崩溃
+        - 后处理：清理 stored_path 失效的记录（文件被外部删除）+ 重建 hash 索引
         """
-        if not os.path.exists(self._json_path):
-            self._assets = []
-            self._next_id = 1
-            return
+        self._assets, self._next_id = load_records(
+            self._json_path, "assets", AssetInfo.from_dict,
+            min_next_id=lambda rs: max((a.asset_id for a in rs), default=0) + 1,
+        )
 
-        try:
-            with open(self._json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, dict):
-                raise ValueError("Invalid json structure: expected dict")
-            assets_data = data.get("assets", [])
-            self._assets = [AssetInfo.from_dict(d)
-                            for d in assets_data if isinstance(d, dict)]
-            self._next_id = data.get("next_id", 1)
-            if self._assets:
-                max_id = max(a.asset_id for a in self._assets)
-                self._next_id = max(self._next_id, max_id + 1)
-            self._next_id = max(self._next_id, 1)
+        # 清理 stored_path 失效的记录（文件被外部删除/移动）
+        invalid = [a for a in self._assets
+                   if not a.stored_path or not os.path.exists(a.stored_path)]
+        if invalid:
+            invalid_ids = {a.asset_id for a in invalid}
+            self._assets = [a for a in self._assets if a.asset_id not in invalid_ids]
+            self._save()
 
-            # 清理 stored_path 失效的记录（文件被外部删除/移动）
-            invalid = [a for a in self._assets
-                       if not a.stored_path or not os.path.exists(a.stored_path)]
-            if invalid:
-                invalid_ids = {a.asset_id for a in invalid}
-                self._assets = [a for a in self._assets if a.asset_id not in invalid_ids]
-                self._save()
-
-            # 构建 content_hash 索引（仅保留文件仍有效的记录）
-            self._rebuild_hash_index()
-        except Exception:
-            # json 解析异常或文件损坏 → 初始化空列表，保证不崩溃
-            self._assets = []
-            self._next_id = 1
+        # 构建 content_hash 索引（仅保留文件仍有效的记录）
+        self._rebuild_hash_index()
 
     def _rebuild_hash_index(self):
         """依据当前内存素材列表重建 content_hash -> asset_id 索引"""
@@ -282,13 +265,16 @@ class TempAssetManager:
         self._save()
 
     # ---------------- 增删改查 ----------------
-    def add_asset(self, source_path: str) -> int:
+    def add_asset(self, source_path: str, display_name: str = None) -> int:
         """
         复制源文件到 temp_assets/，加入素材列表。
         超出上限时自动按 added_time 升序淘汰最旧的（连同文件一起删除）。
         去重（任务 6.3）：若内容哈希（sha256）已存在且文件仍有效，
         视为重复拖入 —— 不再复制/新增，仅刷新其 added_time（移到最新，
         避免被淘汰）并返回已有 asset_id。
+        display_name：可选。列表里展示的名称，默认取源文件名。
+        剪贴板截图这类「中转文件」落盘名由本方法统一生成（带时间戳），
+        展示名需要自己带时间戳以便区分，故单独传入。
         返回新素材的 asset_id；失败返回 -1。
         """
         if not source_path or not os.path.isfile(source_path):
@@ -339,9 +325,9 @@ class TempAssetManager:
         # 创建素材记录
         asset = AssetInfo(
             asset_id=self._next_id,
-            original_name=sanitize_filename(original_name),
+            original_name=sanitize_filename(display_name or original_name),
             stored_path=stored_path,
-            is_image=_is_image(original_name),
+            is_image=_is_image(stored_path),
             size_bytes=size_bytes,
             added_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             content_hash=src_hash,

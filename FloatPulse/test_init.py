@@ -15,17 +15,28 @@ from src.fragment_manager import FragmentManager
 from src.clipboard_monitor import ClipboardMonitor
 from src.temp_asset_manager import TempAssetManager
 from src.main_window import MainWindow
-from src.card_window import CardWindow
 from knowledge_ball import FloatingBall
 
 
 def main():
     app = QApplication(sys.argv)
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    # 与主程序保持一致：数据与知识库统一用项目根目录（v1 / v2 共用同一份）
+    from src.app_paths import get_base_dir
+    base_dir = get_base_dir()
     data_dir = os.path.join(base_dir, "data")
     os.makedirs(data_dir, exist_ok=True)
 
-    config = ConfigManager(os.path.join(data_dir, "config.json"))
+    # ★ 测试用「真实配置的副本」，绝不读写用户的 config.json ——
+    #   apply_external_theme / 窗口几何保存等路径都会 set + save 落盘，
+    #   之前直接用真实配置，导致每跑一次冒烟就把用户的主题改回 light。
+    import shutil
+    import tempfile
+    real_cfg = os.path.join(data_dir, "config.json")
+    tmp_dir = tempfile.mkdtemp(prefix="fp_test_init_")
+    test_cfg = os.path.join(tmp_dir, "config.json")
+    if os.path.exists(real_cfg):
+        shutil.copy2(real_cfg, test_cfg)
+    config = ConfigManager(test_cfg)
 
     docx_mgr = DocxManager(
         os.path.join(base_dir, "知识库.docx"),
